@@ -19,6 +19,23 @@ versioned section as part of the release PR.
 
 ### Removed
 
+## 0.5.0 - 2026-08-03
+
+### Added
+
+- `tests/core-pinning-contract.test.mjs` covering read/pin endpoint separation, host-configured SDK pinning, fail-closed behavior when configuration is missing, and trusted credential storage guidance.
+
+### Changed
+
+- Structured-atom workflows now use `@0xintuition/sdk` 3.0.1 or newer, or an equivalent host-provided server adapter, while network-specific `$GRAPHQL` endpoints remain read-only discovery surfaces.
+- Pinning credentials are explicitly owned by the consuming application's trusted runtime, with local, CI, and deployment storage guidance that keeps keys out of prompts, skill files, browser bundles, logs, and transaction output.
+- Autonomous pinning prompts now assume a preconfigured host capability and include a missing-configuration refusal case.
+
+### Fixed
+
+- Replaced the unusable keyless pin-mutation path against `$GRAPHQL` with the canonical authenticated pinning boundary at `https://pin.intuition.systems/v1/graphql`.
+- Missing or failed pinning now stops before transaction generation with the existing `pin_failed` output shape; missing configuration uses a reason beginning `pinning_configuration_required` and never falls back to a plain-string atom.
+
 ## 0.4.0 - 2026-04-27
 
 ### Added
