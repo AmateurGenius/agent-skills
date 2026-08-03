@@ -3,8 +3,10 @@
 Use the Intuition GraphQL API to discover atoms, triples, positions, and accounts. GraphQL is the discovery layer — use it to search, browse, and traverse the knowledge graph. Use on-chain reads (`reference/reading-state.md`) for real-time vault state, costs, and previews.
 
 **Requires:** `$GRAPHQL` from session setup (`reference/reading-state.md`).
-Canonical endpoint values live in `reference/network-config.md`. No
-authentication, no SDK — public POST with JSON body.
+Canonical endpoint values live in `reference/network-config.md`. Read queries
+need no authentication or SDK: use a public POST with a JSON body. Hosted
+metadata pinning is a separate service and credential boundary; see
+`reference/schemas.md`.
 
 ## When to Use GraphQL vs On-Chain Reads
 
@@ -19,7 +21,7 @@ authentication, no SDK — public POST with JSON body.
 | Preview deposit/redeem outcomes | On-chain |
 | Query costs (atomCost, tripleCost) | On-chain |
 | Check existence before creating | Either (GraphQL more efficient for batch) |
-| Pin structured atom metadata to IPFS | GraphQL (mutations) — see `reference/schemas.md` |
+| Pin structured atom metadata to IPFS | Host pinning capability / SDK — see `reference/schemas.md` |
 
 ## Graph Landscape
 
@@ -32,11 +34,15 @@ Context for what the knowledge graph contains, as of early 2026. Use the Graph A
 - **Duplicate atoms**: The same label can appear as multiple atoms with different `term_id`s (content-addressed IDs mean different encoding paths produce different atoms). Always resolve by `term_id`, not label.
 - **Predicate vocabulary**: 50+ distinct predicates exist, but most triples use just 3-5 (`has tag`, `follow`, `name`, `timestamp`). Rich semantic predicates are sparse and high-value.
 
-## Pin Mutations (GraphQL Writes)
+## Hosted Pinning Mutations
 
-The `$GRAPHQL` endpoint also supports **pin mutations** — `pinThing`, `pinPerson`, `pinOrganization` — which pin structured metadata to IPFS and return an `ipfs://` URI for use in `createAtoms`. These are the first GraphQL **write** operations in the skill (pre-chain, no gas, no signing).
-
-Pin mutations are documented in `reference/schemas.md`. All read safety invariants below also apply to pin mutation requests — use only the session-pinned `$GRAPHQL` endpoint.
+The network-specific `$GRAPHQL` endpoint is read-only and does not serve
+`pinThing`, `pinPerson`, or `pinOrganization`. Those persistent pre-chain
+mutations run through the separately configured host pinning capability. Prefer
+`@0xintuition/sdk` 3.0.1 or newer for `pinThing`; it selects the gated endpoint
+and attaches the execution environment's pinning credential. See
+`reference/schemas.md` for the capability, storage, validation, and fail-closed
+contract.
 
 ## Read Safety Invariants
 
@@ -48,7 +54,10 @@ These rules govern all GraphQL reads. They are the read-side equivalent of the w
 
 3. **`term_id` is canonical identity.** Labels are display hints — multiple atoms can share the same label string. Always resolve to `term_id` (bytes32) before using a result in operations.
 
-4. **Use only session-pinned endpoints.** The `$GRAPHQL` variable must come from the network config table in SKILL.md. If GraphQL is unavailable or returns unexpected schema, fall back to on-chain reads for safety-critical decisions.
+4. **Use only session-pinned read endpoints.** The `$GRAPHQL` variable must come
+   from the network config table in SKILL.md. Never send pin mutations to it. If
+   GraphQL is unavailable or returns an unexpected schema, fall back to
+   on-chain reads for safety-critical decisions.
 
 ## Revalidation Bridge (GraphQL -> Write)
 
@@ -116,7 +125,8 @@ See `reference/post-write-verification.md` for the full post-broadcast verificat
 
 ## Request Format
 
-All queries use a POST request with a JSON body. No authentication required.
+All read queries use a POST request with a JSON body. No authentication is
+required for these reads.
 
 ### Using curl
 

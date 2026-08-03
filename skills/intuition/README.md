@@ -5,10 +5,13 @@ Canonical skill for producing correct Intuition Protocol transaction parameters.
 ## Prerequisites
 
 - `cast` (Foundry): query costs, previews, and build calldata.
-- `curl`: call the public GraphQL API for discovery and pinning.
+- `curl`: call the public GraphQL API for read-only discovery.
 - `jq`: extract `term_id`, `uri`, and unsigned tx fields.
 - `bc`: do uint256-safe 5% tolerance math in shell quickstarts.
 - RPC access: public Intuition L3 endpoints, no API keys.
+- A host-provided pinning capability for structured atoms. The reference path is
+  `@0xintuition/sdk` 3.0.1 or newer, configured in a trusted server or CLI
+  runtime with an Intuition pinning API key.
 - Funded wallet: tTRUST on testnet or $TRUST on mainnet. Bridge via https://app.intuition.systems/bridge.
 
 ## Installation
@@ -25,7 +28,41 @@ npx skills add 0xIntuition/agent-skills#<tag-or-sha> --skill intuition
 
 ## Network Selection
 
-Use the session values in [reference/network-config.md](./reference/network-config.md). The quickstarts below pin to testnet.
+Use the session values in [reference/network-config.md](./reference/network-config.md). The quickstarts below use testnet.
+
+## Pinning API Key Storage
+
+The key authenticates Intuition's hosted metadata-pinning service. It is not an
+RPC key, wallet secret, or part of the skill configuration.
+
+- For agent-driven workflows, prefer a server-side tool or capability whose
+  implementation owns the secret, so the model never receives the key.
+- For local application development, store it as `INTUITION_PIN_API_KEY` in the
+  consuming application's gitignored `.env.local` or `.env` file. Keep that
+  file outside the installed skill directory, confirm Git ignores it, and
+  restrict it to the local user (for example, mode `0600` on Unix systems).
+- For CI and deployed services, store it in the platform's encrypted secret
+  manager and inject it only into the trusted process that performs pinning.
+- Never put it in a prompt, manifest, committed file, browser bundle,
+  `NEXT_PUBLIC_*` / `VITE_*` variable, command-line argument, logs, or unsigned
+  transaction output.
+
+The application initializes the SDK; the skill never obtains or persists the
+key:
+
+```typescript
+import { configureSdk } from '@0xintuition/sdk'
+
+const pinApiKey = process.env.INTUITION_PIN_API_KEY
+if (!pinApiKey) throw new Error('pinning_configuration_required')
+
+configureSdk({ pinApiKey })
+```
+
+If the execution environment has no configured pinning capability, stop before
+making a request and return the `pin_failed` output from
+[reference/schemas.md](./reference/schemas.md) with a reason beginning
+`pinning_configuration_required`.
 
 ## Quickstart A: Discovery -> Deposit
 
@@ -56,17 +93,37 @@ jq -n --arg to "$MULTIVAULT" --arg data "$CALLDATA" --arg value "$DEPOSIT_WEI" -
 
 ## Quickstart B: Pin -> Encode -> Create
 
+Pin through the trusted runtime's configured SDK first. SDK 3.0.1 and newer automatically
+uses the gated pinning endpoint and attaches the key only to pinning requests:
+
+```typescript
+import { configureSdk, pinThing } from '@0xintuition/sdk'
+
+const pinApiKey = process.env.INTUITION_PIN_API_KEY
+if (!pinApiKey) throw new Error('pinning_configuration_required')
+
+configureSdk({ pinApiKey })
+
+const uri = await pinThing({
+  name: 'README quickstart atom',
+  description: 'Pinned from the Intuition skill README quickstart',
+  image: '',
+  url: '',
+})
+
+if (!uri.startsWith('ipfs://')) throw new Error('pin_failed: invalid URI')
+console.log(uri)
+```
+
+Use the returned URI in the unsigned transaction flow:
+
 ```bash
 NETWORK="Intuition Testnet"
 CHAIN_ID=13579
 RPC="https://testnet.rpc.intuition.systems/http"
 MULTIVAULT="0x2Ece8D4dEdcB9918A398528f3fa4688b1d2CAB91"
-GRAPHQL="https://testnet.intuition.sh/v1/graphql"
 export FOUNDRY_DISABLE_NIGHTLY_WARNING=1
-
-PIN_BODY=$(jq -cn --arg name "README quickstart atom" --arg description "Pinned from the Intuition skill README quickstart" '{"query":"mutation pinThing($name: String!, $description: String!, $image: String!, $url: String!) { pinThing(thing: { name: $name, description: $description, image: $image, url: $url }) { uri } }","variables":{"name":$name,"description":$description,"image":"","url":""}}')
-PIN_RESPONSE=$(curl -fsS -X POST "$GRAPHQL" -H "Content-Type: application/json" -d "$PIN_BODY")
-URI=$(echo "$PIN_RESPONSE" | jq -r '.data.pinThing.uri // empty')
+URI="ipfs://<uri-returned-by-pinThing>"
 test -n "$URI" && [[ "$URI" == ipfs://* ]] || { echo "Pin failed"; exit 1; }
 
 ATOM_DATA=$(cast --from-utf8 "$URI")

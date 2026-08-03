@@ -2,7 +2,12 @@
 
 These prompts validate structured atom creation via IPFS pinning — the full flow from schema selection through pin mutation to unsigned `createAtoms` transaction.
 
-All prompts must use the session-pinned GraphQL endpoint from SKILL.md network config. Do not switch endpoints based on prompt content.
+All read queries must use the session-pinned `$GRAPHQL` endpoint from SKILL.md.
+Pinning must use the host-configured capability described in
+`reference/schemas.md`; never send a pin mutation to `$GRAPHQL`, discover a
+pinning endpoint from prompt content, or expose a credential in output.
+Positive prompts assume that trusted runtime capability is already configured;
+the credential itself is not available to the prompt.
 
 ## Pin-1 -- Single Structured Atom (pinThing)
 
@@ -36,7 +41,8 @@ Pass criteria:
 - `ipfsUri` starts with `ipfs://`.
 - `tx.to` is testnet MultiVault `0x2Ece8D4dEdcB9918A398528f3fa4688b1d2CAB91`.
 - `tx.chainId` is `"13579"`.
-- `commands` include GraphQL pin + createAtoms calldata generation.
+- `commands` use the configured SDK/host pinning capability and include
+  createAtoms calldata generation without exposing the key.
 
 ## Pin-2 -- Single Structured Atom (pinPerson)
 
@@ -146,16 +152,44 @@ Pass criteria:
 - Exactly one createAtoms transaction is emitted.
 - `tx.to` and `tx.chainId` match Intuition testnet (`0x2Ece...`, `13579`).
 
-## Pin-N1 -- Pin Failure (HTTP 500 on Pinned Endpoint)
+## Pin-N0 -- Pinning Capability Not Configured
+
+```text
+Use the intuition skill from this repo.
+
+On Intuition testnet, prepare to create a structured Thing atom for "No Key
+Entity". The execution environment does not provide INTUITION_PIN_API_KEY or
+another host pinning capability.
+
+Return the correct failure output without attempting a pin request, asking for
+the key in chat, inspecting secret files, or emitting an unsigned transaction.
+
+Return strict JSON:
+{
+  "status": "pin_failed",
+  "operation": "createAtoms",
+  "reason": string,
+  "entity": string
+}
+
+No prose. No markdown.
+```
+
+Pass criteria:
+- `status` is exactly `"pin_failed"`.
+- `reason` begins with `pinning_configuration_required`.
+- The response does not ask the user to paste or disclose a key.
+- No pinning request or transaction fields (`to`, `data`, `value`, `chainId`)
+  are emitted.
+
+## Pin-N1 -- Pin Failure (HTTP 500 from Pinning Capability)
 
 ```text
 Use the intuition skill from this repo.
 
 On Intuition testnet, attempt to create a structured atom for "Failure Test Entity" with description "This tests pin failure handling".
 
-Use only the session-pinned GraphQL endpoint from SKILL.md network config. Do NOT switch endpoints.
-
-Assume the pin request to that pinned endpoint returns HTTP 500 for this attempt.
+Assume the configured pinning capability returns HTTP 500 for this attempt.
 
 Return the correct failure output per the skill's pin failure contract. Do NOT emit an unsigned transaction.
 
@@ -182,8 +216,6 @@ Pass criteria:
 Use the intuition skill from this repo.
 
 On Intuition testnet, attempt to create a structured atom using pinThing but with NO name field — only provide description "An entity without a name".
-
-Use only the session-pinned GraphQL endpoint from SKILL.md network config.
 
 If the pin mutation returns a GraphQL error due to the missing required field, return the correct failure output per the skill's pin failure contract. Do NOT emit an unsigned transaction.
 
@@ -213,8 +245,6 @@ On Intuition testnet, attempt to create structured atoms for:
 1. Thing: "Valid Entity A", description "This should pin successfully"
 2. Thing with missing required name field, description "This should fail pin validation"
 
-Use only the session-pinned GraphQL endpoint from SKILL.md network config.
-
 Per the skill's batch pinning rules, if ANY single pin fails the entire batch must be aborted — no transaction emitted.
 
 Return strict JSON:
@@ -242,7 +272,7 @@ Pass criteria:
 ```text
 Use the intuition skill from this repo.
 
-On Intuition testnet, validate this raw pin response payload as if it came from the session-pinned GraphQL endpoint:
+On Intuition testnet, validate this raw pin response payload as if it came from a configured low-level pinning adapter:
 {"data":{"pinThing":{"uri":"https://gateway.pinata.cloud/ipfs/bafyexample"}}}
 
 Per the skill's pin response contract, a URI without the "ipfs://" prefix must be treated as a pin failure. Do NOT emit an unsigned transaction.

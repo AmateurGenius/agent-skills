@@ -20,6 +20,21 @@ Run:
 Expected:
 - `PASS=25 FAIL=0`
 
+### Layer A.1: Core Pinning Contract (Offline)
+
+Goal:
+- Keep read GraphQL and authenticated pinning endpoints separate.
+- Require a host-configured SDK pinning capability.
+- Fail closed without requesting or exposing a credential.
+
+Artifact:
+- `tests/core-pinning-contract.test.mjs`
+
+Run:
+```bash
+node --test tests/core-pinning-contract.test.mjs
+```
+
 ### Layer A.5: RPC Edge Cases (Read-Only, No Signing)
 
 Goal:

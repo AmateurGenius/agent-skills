@@ -2,7 +2,11 @@
 
 Follow these multi-step recipes for common Intuition operations. Each assumes you've already run the Session Setup Pattern from `reading-state.md` and have `atomCost`, `tripleCost`, `curveId`, and `$GRAPHQL` cached.
 
-**All atoms are pinned to IPFS** before creation (except CAIP-10 addresses). See `reference/schemas.md` for the full pin flow. The pseudocode below uses `pin(name)` as shorthand for "pin via `pinThing` → get `ipfs://` URI → `stringToHex(uri)`".
+**All atoms are pinned to IPFS** before creation (except CAIP-10 addresses).
+See `reference/schemas.md` for the host-configured pinning boundary. The
+pseudocode below uses `pin(name)` as shorthand for "call the configured
+`pinThing` capability → get `ipfs://` URI → `stringToHex(uri)`". It never means
+posting a mutation to the read-only `$GRAPHQL` endpoint.
 
 ## 1. Create an Atom and Deposit
 
