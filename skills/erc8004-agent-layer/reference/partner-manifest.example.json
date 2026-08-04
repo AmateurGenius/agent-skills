@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "network": "testnet",
+  "agent": {
+    "chainId": 8453,
+    "tokenId": "1380"
+  },
+  "provider": {
+    "thing": {
+      "name": "Example Trust Provider",
+      "description": "Publishes independent trust and risk assessments for autonomous agents.",
+      "image": "https://provider.example/logo.png",
+      "url": "https://provider.example"
+    }
+  },
+  "assessmentSource": {
+    "resolverUrl": "https://provider.example/.well-known/intuition/erc8004/agents/8453/1380/trust-assessment.json",
+    "thing": {
+      "name": "Example Trust Provider Assessment for Captain Dackie",
+      "description": "Provider-owned source for the current trust assessment of ERC-8004 agent 8453:1380.",
+      "image": "https://provider.example/logo.png",
+      "url": "https://provider.example/.well-known/intuition/erc8004/agents/8453/1380/trust-assessment.json"
+    }
+  },
+  "enrichment": {
+    "includeRegistrationChain": true,
+    "owner": null,
+    "protocols": [],
+    "x402": false,
+    "trustModels": [],
+    "oasfSkills": [],
+    "oasfDomains": []
+  }
+}

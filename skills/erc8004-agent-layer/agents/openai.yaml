@@ -1,0 +1,4 @@
+interface:
+  display_name: "ERC-8004 Agent Layer"
+  short_description: "Build canonical ERC-8004 semantic plans"
+  default_prompt: "Use $erc8004-agent-layer to build the canonical semantic plan and stop before protocol preparation."

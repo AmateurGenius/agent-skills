@@ -7,6 +7,7 @@ Agent skills for [Claude Code](https://docs.anthropic.com/en/docs/claude-code), 
 | Skill | Description | Install |
 |-------|-------------|---------|
 | [intuition](skills/intuition/) | Canonical reference for producing correct Intuition Protocol transactions -- ABIs, encoding, addresses, value calculations | `npx skills add 0xintuition/agent-skills --skill intuition` |
+| [erc8004-agent-layer](skills/erc8004-agent-layer/) | Canonical ERC-8004 identity, classification, trust-provider, and mutable-assessment planning with deterministic registry guardrails | `npx skills add 0xintuition/agent-skills --skill erc8004-agent-layer` |
 
 ## Quick Start
 
@@ -16,25 +17,30 @@ npx skills add 0xintuition/agent-skills
 
 # Install a specific skill
 npx skills add 0xintuition/agent-skills --skill intuition
+npx skills add 0xintuition/agent-skills --skill erc8004-agent-layer
 ```
 
-Once installed, skills are available in your agent's session. Use `/intuition` to invoke the Intuition skill.
+Once installed, skills are available in your agent's session. Use `/intuition`
+for generic protocol operations. Use `/erc8004-agent-layer` to produce the
+ERC-8004 semantic plan, then start protocol preparation only in a new user turn
+after reviewing that plan.
 
 ## What These Skills Do
 
 Intuition runs on an L3 chain that isn't indexed by Etherscan. LLMs can't discover the ABIs, and they make consistent mistakes with the V2 contract interface (bytes32 IDs, batch-only creation, bonding curves). These skills fill those blind spots with verified, canonical knowledge.
 
-**Skills produce unsigned transaction parameters.** Wallet infrastructure and signing are the builder's responsibility.
+The core `intuition` skill can produce unsigned transaction parameters after
+the relevant preparation gates. The `erc8004-agent-layer` skill produces only
+a semantic plan and stops before transaction preparation. Wallet
+infrastructure and signing remain the builder's responsibility.
 
 ## Structure
 
 ```
 agent-skills/
 ├── skills/
-│   └── intuition/        # Intuition Protocol skill
-│       ├── SKILL.md      # Skill definition (agent-facing)
-│       ├── README.md     # Human documentation
-│       └── reference/    # Supplementary references
+│   ├── intuition/               # Core Intuition Protocol skill
+│   └── erc8004-agent-layer/     # ERC-8004 partner integration skill
 ├── .claude-plugin/
 │   └── marketplace.json  # skills.sh marketplace manifest
 ├── CLAUDE.md             # Repo-level agent instructions

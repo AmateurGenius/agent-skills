@@ -1,0 +1,460 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "registry": "intuition-erc8004-agent-layer",
+  "version": "1.0.0-draft",
+  "generatedAt": "2026-07-16T00:00:00.000Z",
+  "status": "draft",
+  "source": "https://docs.intuition.systems/docs/erc-8004-agent-layer",
+  "networks": {
+    "mainnet": {
+      "chainId": 1155,
+      "name": "Intuition Mainnet",
+      "graphql": "https://mainnet.intuition.sh/v1/graphql",
+      "rpc": "https://rpc.intuition.systems/http",
+      "multiVault": "0x6E35cF57A41fA15eA0EaE9C33e751b01A784Fe7e",
+      "nativeToken": "TRUST"
+    },
+    "testnet": {
+      "chainId": 13579,
+      "name": "Intuition Testnet",
+      "graphql": "https://testnet.intuition.sh/v1/graphql",
+      "rpc": "https://testnet.rpc.intuition.systems/http",
+      "multiVault": "0x2Ece8D4dEdcB9918A398528f3fa4688b1d2CAB91",
+      "nativeToken": "tTRUST"
+    }
+  },
+  "erc8004": {
+    "identityRegistry": "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432",
+    "identityObjectDescription": "CAIP-style external identifier atom for linking an Intuition atom to an ERC-8004 registry identity.",
+    "agentFallbackUrlTemplate": "https://8004scan.io/agents/{chainId}/{tokenId}",
+    "chainTermKeysByEvmChainId": {
+      "1": "chain:ethereum",
+      "8453": "chain:base",
+      "56": "chain:bsc",
+      "137": "chain:polygon",
+      "42161": "chain:arbitrum",
+      "10": "chain:optimism"
+    }
+  },
+  "terms": {
+    "predicate:same-as": {
+      "label": "same as",
+      "kind": "predicate",
+      "createPolicy": "resolve-only",
+      "selection": "term-id-only",
+      "termIds": {
+        "mainnet": "0xbeebfb7d177cbd96ffc239d2196c72ec346efe81f39dc595773f13d83506f5f0",
+        "testnet": "0xbeebfb7d177cbd96ffc239d2196c72ec346efe81f39dc595773f13d83506f5f0"
+      }
+    },
+    "predicate:has-type": {
+      "label": "has type",
+      "kind": "predicate",
+      "createPolicy": "resolve-only",
+      "selection": "term-id-only",
+      "termIds": {
+        "mainnet": "0xa632a94306ab1d56911cff8c06473659a7caa2dfec6de3921bc23ec8ebf96ced",
+        "testnet": "0xa632a94306ab1d56911cff8c06473659a7caa2dfec6de3921bc23ec8ebf96ced"
+      }
+    },
+    "predicate:implement": {
+      "label": "implement",
+      "kind": "predicate",
+      "createPolicy": "resolve-only",
+      "selection": "term-id-only",
+      "termIds": {
+        "mainnet": "0xfa02609bfde5a9a7ba18fa8afc1c42bc643edfaf7d44e3ce9e50835290d03324",
+        "testnet": "0xfa02609bfde5a9a7ba18fa8afc1c42bc643edfaf7d44e3ce9e50835290d03324"
+      }
+    },
+    "predicate:available-on": {
+      "label": "available on",
+      "kind": "predicate",
+      "createPolicy": "resolve-only",
+      "selection": "term-id-only",
+      "termIds": {
+        "mainnet": "0xa974ce85010776bb6eb81e4492bdb8712f127aa75ae737f02cbe80e72409f7d3",
+        "testnet": "0xa974ce85010776bb6eb81e4492bdb8712f127aa75ae737f02cbe80e72409f7d3"
+      }
+    },
+    "predicate:created-by": {
+      "label": "created by",
+      "kind": "predicate",
+      "createPolicy": "resolve-only",
+      "selection": "term-id-only",
+      "termIds": {
+        "mainnet": "0x5a959cdd3493fb6335c315df14eb35edb7f2cc578ccae899a89c0f7f330239eb",
+        "testnet": "0x5a959cdd3493fb6335c315df14eb35edb7f2cc578ccae899a89c0f7f330239eb"
+      }
+    },
+    "predicate:use": {
+      "label": "use",
+      "kind": "predicate",
+      "createPolicy": "resolve-only",
+      "selection": "term-id-only",
+      "termIds": {
+        "mainnet": "0x9ddda4ac2477ec6908e9561ab31ccd767bf3642e0ed0531fd61d447badd896ab",
+        "testnet": "0x9ddda4ac2477ec6908e9561ab31ccd767bf3642e0ed0531fd61d447badd896ab"
+      }
+    },
+    "predicate:has-tag": {
+      "label": "has tag",
+      "kind": "predicate",
+      "createPolicy": "resolve-only",
+      "selection": "term-id-only",
+      "termIds": {
+        "mainnet": "0x7ec36d201c842dc787b45cb5bb753bea4cf849be3908fb1b0a7d067c3c3cc1f5",
+        "testnet": "0x6de69cc0ae3efe4000279b1bf365065096c8715d8180bc2a98046ee07d3356fd"
+      }
+    },
+    "predicate:has-category": {
+      "label": "has category",
+      "kind": "predicate",
+      "createPolicy": "resolve-only",
+      "selection": "term-id-only",
+      "termIds": {
+        "mainnet": "0x96c20ddd7f83034666e200aa976cbe2249946bf76a7c66333212be82f284ad4b",
+        "testnet": "0x96c20ddd7f83034666e200aa976cbe2249946bf76a7c66333212be82f284ad4b"
+      }
+    },
+    "predicate:compatible-with": {
+      "label": "compatible with",
+      "kind": "predicate",
+      "createPolicy": "resolve-only",
+      "selection": "term-id-only",
+      "termIds": {
+        "mainnet": "0xaf3ca6cd6db1cc57c5ae68b1177ba1fd426488bd781494166ab8cb0ed28a6ea3",
+        "testnet": "0xaf3ca6cd6db1cc57c5ae68b1177ba1fd426488bd781494166ab8cb0ed28a6ea3"
+      }
+    },
+    "predicate:has-trust-provider": {
+      "label": "has trust provider",
+      "kind": "predicate",
+      "createPolicy": "resolve-only",
+      "selection": "term-id-only",
+      "atomData": "ipfs://bafkreiflntyhshdfvzqfqdpqlqcfdcwl4ncusjjykepmz5dtsqfk6ktbai",
+      "termIds": {
+        "mainnet": "0xdc3c5639b39f9b6553b75b37c47fa4810961392b28956234ba9f401a98f43888",
+        "testnet": "0xdc3c5639b39f9b6553b75b37c47fa4810961392b28956234ba9f401a98f43888"
+      }
+    },
+    "predicate:has-trust-assessment": {
+      "label": "has trust assessment",
+      "kind": "predicate",
+      "createPolicy": "resolve-only",
+      "selection": "term-id-only",
+      "atomData": "ipfs://bafkreibnljaapmjkfx7m53qhtmbnpntxyfuv5omeojwxxbv5vkw5uakdkm",
+      "termIds": {
+        "mainnet": "0x7f455fb041f766c3f24552db4c943888c6778c2475d4f2d434b84ad03298457c",
+        "testnet": "0x7f455fb041f766c3f24552db4c943888c6778c2475d4f2d434b84ad03298457c"
+      }
+    },
+    "predicate:provided-by": {
+      "label": "provided by",
+      "kind": "predicate",
+      "createPolicy": "resolve-only",
+      "selection": "term-id-only",
+      "atomData": "ipfs://bafkreihchhndqx2bcwfgpphqxqjqvxokskluyfujfozom3eif2ecxiefs4",
+      "termIds": {
+        "mainnet": "0x9a310b5ca895009792e5b1dc0131539f36c054e8e32987989367ec73a1a3ef19",
+        "testnet": "0x9a310b5ca895009792e5b1dc0131539f36c054e8e32987989367ec73a1a3ef19"
+      }
+    },
+    "type:ai-agent": {
+      "label": "AIAgent",
+      "kind": "type",
+      "createPolicy": "resolve-only",
+      "selection": "term-id-only",
+      "termIds": {
+        "mainnet": "0x800342c0ded1c288e69f39a2dc96d8cff9b242e9f573193e6e0a849e5315d3e9",
+        "testnet": "0x800342c0ded1c288e69f39a2dc96d8cff9b242e9f573193e6e0a849e5315d3e9"
+      }
+    },
+    "standard:erc-8004": {
+      "label": "ERC-8004",
+      "kind": "standard",
+      "createPolicy": "resolve-only",
+      "selection": "term-id-only",
+      "termIds": {
+        "mainnet": "0x595ba5059b23a9aa4d64deff324ff3d957866715d5b7b8015eebc9009bab78b2",
+        "testnet": "0x595ba5059b23a9aa4d64deff324ff3d957866715d5b7b8015eebc9009bab78b2"
+      }
+    },
+    "standard:x402": {
+      "label": "x402",
+      "kind": "standard",
+      "createPolicy": "resolve-only",
+      "selection": "term-id-only",
+      "termIds": {
+        "mainnet": "0x598193f2ac7f951b82b59a9c454cc012c3d7bfd76328331f4e4c9e5e75a2be8f",
+        "testnet": "0x598193f2ac7f951b82b59a9c454cc012c3d7bfd76328331f4e4c9e5e75a2be8f"
+      }
+    },
+    "standard:mcp": {
+      "label": "MCP",
+      "kind": "standard",
+      "createPolicy": "resolve-only",
+      "selection": "term-id-only",
+      "termIds": {
+        "mainnet": "0xcfba7ccac56d280356b324ef16332100707ab50e7a6c1c7ab7dfdeb5fb62e43d",
+        "testnet": "0xcfba7ccac56d280356b324ef16332100707ab50e7a6c1c7ab7dfdeb5fb62e43d"
+      }
+    },
+    "standard:a2a": {
+      "label": "A2A",
+      "kind": "standard",
+      "createPolicy": "resolve-only",
+      "selection": "term-id-only",
+      "termIds": {
+        "mainnet": "0x9146ad2efc85bece6280476c8b338d01ddf0bec09ba56ee0441c9405a852a6e9",
+        "testnet": "0x9146ad2efc85bece6280476c8b338d01ddf0bec09ba56ee0441c9405a852a6e9"
+      }
+    },
+    "standard:oasf": {
+      "label": "OASF",
+      "kind": "standard",
+      "createPolicy": "resolve-only",
+      "selection": "term-id-only",
+      "termIds": {
+        "mainnet": "0xec422ccd84fecb350432533e68a2565c11addff74d80335d1548941518aefb9e",
+        "testnet": "0xec422ccd84fecb350432533e68a2565c11addff74d80335d1548941518aefb9e"
+      }
+    },
+    "type:mcp-server": {
+      "label": "MCP Server",
+      "kind": "type",
+      "createPolicy": "resolve-only",
+      "selection": "term-id-only",
+      "termIds": {
+        "mainnet": "0xb52bb294a1cbf67a3fccc6bc8423e0758a11acfeb60caf6a0465ffca9ec3ae79",
+        "testnet": "0xb52bb294a1cbf67a3fccc6bc8423e0758a11acfeb60caf6a0465ffca9ec3ae79"
+      }
+    },
+    "type:a2a-agent": {
+      "label": "A2A Agent",
+      "kind": "type",
+      "createPolicy": "resolve-only",
+      "selection": "term-id-only",
+      "acceptedIndexerLabels": {
+        "mainnet": ["A2A Agent", "Unknown"],
+        "testnet": ["A2A Agent", "Unknown"]
+      },
+      "termIds": {
+        "mainnet": "0x6f0aee1b3bc88f578afc00e9444213d0f54cd9ab40cac7130f1d3453fd5c317e",
+        "testnet": "0x6f0aee1b3bc88f578afc00e9444213d0f54cd9ab40cac7130f1d3453fd5c317e"
+      }
+    },
+    "type:trust-assessment-source": {
+      "label": "Trust Assessment Source",
+      "kind": "type",
+      "createPolicy": "resolve-only",
+      "selection": "term-id-only",
+      "atomData": "ipfs://bafkreid3qlbortfn7engukjp3zs2figse6nuh6lftuwtzp32wjq752ibh4",
+      "termIds": {
+        "mainnet": "0xf8a0ea34c8e7195b63d1641141166cc56e9128e25cf8c9f68ac6b81527b78f07",
+        "testnet": "0xf8a0ea34c8e7195b63d1641141166cc56e9128e25cf8c9f68ac6b81527b78f07"
+      }
+    },
+    "chain:ethereum": {
+      "label": "Ethereum",
+      "kind": "chain",
+      "createPolicy": "resolve-only",
+      "selection": "term-id-only",
+      "termIds": {
+        "mainnet": "0x1de157191ec5d1e398819f11b3664b1827d80437d5e6d1db61bbf569f90ae980",
+        "testnet": "0x1de157191ec5d1e398819f11b3664b1827d80437d5e6d1db61bbf569f90ae980"
+      }
+    },
+    "chain:base": {
+      "label": "Base",
+      "kind": "chain",
+      "createPolicy": "resolve-only",
+      "selection": "term-id-only",
+      "termIds": {
+        "mainnet": "0x3a9975dff190314abfb2f36b2a6c42775fc024bae587e7cdc17528465453655f",
+        "testnet": "0x3a9975dff190314abfb2f36b2a6c42775fc024bae587e7cdc17528465453655f"
+      }
+    },
+    "chain:bsc": {
+      "label": "BSC",
+      "kind": "chain",
+      "createPolicy": "resolve-only",
+      "selection": "term-id-only",
+      "acceptedIndexerLabels": {
+        "mainnet": ["BSC", "Binance smart chain"],
+        "testnet": ["BSC", "Binance smart chain"]
+      },
+      "termIds": {
+        "mainnet": "0x2c224499b7983dabe9acd30b4340f52e4ac99d39b7b9d98fc1a6b3ba1575fecb",
+        "testnet": "0x2c224499b7983dabe9acd30b4340f52e4ac99d39b7b9d98fc1a6b3ba1575fecb"
+      }
+    },
+    "chain:polygon": {
+      "label": "Polygon",
+      "kind": "chain",
+      "createPolicy": "resolve-only",
+      "selection": "term-id-only",
+      "termIds": {
+        "mainnet": "0xb471e2b9f4acbb94bced318d24fb4a5ec69cbb94d2159719b83c823890c8a51b",
+        "testnet": "0xb471e2b9f4acbb94bced318d24fb4a5ec69cbb94d2159719b83c823890c8a51b"
+      }
+    },
+    "chain:monad": {
+      "label": "Monad",
+      "kind": "chain",
+      "createPolicy": "resolve-only",
+      "selection": "term-id-only",
+      "termIds": {
+        "mainnet": "0x5c5198d21b8ee026022156a0bf1a9a4e2bae37f89ed0484dbde3a8d61f4784e6",
+        "testnet": "0x5c5198d21b8ee026022156a0bf1a9a4e2bae37f89ed0484dbde3a8d61f4784e6"
+      }
+    },
+    "chain:arbitrum": {
+      "label": "Arbitrum",
+      "kind": "chain",
+      "createPolicy": "resolve-only",
+      "selection": "term-id-only",
+      "termIds": {
+        "mainnet": "0xd902d98dbf0dcbeed85baa03003dec3f9dfced5da03b7673eff41c740c1d5c72",
+        "testnet": "0xd902d98dbf0dcbeed85baa03003dec3f9dfced5da03b7673eff41c740c1d5c72"
+      }
+    },
+    "chain:optimism": {
+      "label": "Optimism",
+      "kind": "chain",
+      "createPolicy": "resolve-only",
+      "selection": "term-id-only",
+      "termIds": {
+        "mainnet": "0x7bf6901464ac66759724bca0fe56284319ef000c995257433c65641005c21aa0",
+        "testnet": "0x7bf6901464ac66759724bca0fe56284319ef000c995257433c65641005c21aa0"
+      }
+    },
+    "trust-model:reputation": {
+      "label": "reputation",
+      "kind": "trust-model",
+      "createPolicy": "resolve-only",
+      "selection": "term-id-only",
+      "termIds": {
+        "mainnet": "0xd22b16d68b364ec3d75ffbab4435e1348be87cc7bed4eda6f6a4d59ca79ae0bf",
+        "testnet": "0xd22b16d68b364ec3d75ffbab4435e1348be87cc7bed4eda6f6a4d59ca79ae0bf"
+      }
+    },
+    "trust-model:crypto-economic": {
+      "label": "crypto-economic",
+      "kind": "trust-model",
+      "createPolicy": "resolve-only",
+      "selection": "term-id-only",
+      "acceptedIndexerLabels": {
+        "mainnet": ["crypto-economic"],
+        "testnet": ["crypto-economic", "Unknown"]
+      },
+      "termIds": {
+        "mainnet": "0x1e49b9102c046de00f1a448041f4e98bc1430fb4a002f7f0ba52840843ad9eb3",
+        "testnet": "0x1e49b9102c046de00f1a448041f4e98bc1430fb4a002f7f0ba52840843ad9eb3"
+      }
+    },
+    "trust-model:tee-attestation": {
+      "label": "tee-attestation",
+      "kind": "trust-model",
+      "createPolicy": "resolve-only",
+      "selection": "term-id-only",
+      "termIds": {
+        "mainnet": "0x671725c78c95813ee4a58addc29304bc68b6ebb15eed981df3202cc9da87a0ec",
+        "testnet": "0x671725c78c95813ee4a58addc29304bc68b6ebb15eed981df3202cc9da87a0ec"
+      }
+    },
+    "trust-model:validation": {
+      "label": "validation",
+      "kind": "trust-model",
+      "createPolicy": "resolve-only",
+      "selection": "term-id-only",
+      "termIds": {
+        "mainnet": "0x2068af1313239d0b61198461eca34fb21030adce5202e92948ced9ae6d9c35aa",
+        "testnet": "0x2068af1313239d0b61198461eca34fb21030adce5202e92948ced9ae6d9c35aa"
+      }
+    }
+  },
+  "catalogs": {
+    "oasfSkills": {
+      "kind": "oasf-skill",
+      "createPolicy": "resolve-only",
+      "selection": "term-id-only",
+      "entries": {
+        "advanced_reasoning_planning": "0x572aaf312d2c2133cac797532235acc72a7fcc2a316bc5f20ce111692d5e122f",
+        "advanced_reasoning_planning/chain_of_thought_structuring": "0x8668d70ddb3f1c5bbf830d0e8f2bb0ff29dc740de753110a1f8aaa0c20033a3c",
+        "advanced_reasoning_planning/decision_making": "0x23b90d9faa6d5ed8fd9416d6a1c270e92e406d48afc9ab9885fb2de557205741",
+        "advanced_reasoning_planning/hypothesis_generation": "0x314d758ff43f51dc518772ea0d70753af04390ec6f00f2fc412c0a6ca7bbaba1",
+        "advanced_reasoning_planning/risk_assessment": "0x1c6b97ad92d0c838cfb05f70dec3e5bb4bb9ef01b99b2bd381df5db1f1ec84df",
+        "advanced_reasoning_planning/strategic_planning": "0x9790f1f6812db5e33ecaf5a3be1a6a3391b788990646d162fa56323076056b82",
+        "analytical_skills": "0xa0f9a190135b986977da5f26498c7d8976b3035a2e6c5f5f50ba8593bf73cc16",
+        "analytical_skills/data_analysis": "0xee7f94be7b49501ae217ba2c7a1587285f542b47a83fff40e8f15a9cae7db977",
+        "analytical_skills/data_analysis/blockchain_analysis": "0xbdeb19cf9a9bbfe1abc32b4bef6aa72ea7153b756619cd812b4f23c4e8f0915a",
+        "analytical_skills/financial_analysis": "0x791e4dc5d024c98922db6130d0666b643a4b63321c79f52bb92d0bfeeb16e60a",
+        "analytical_skills/financial_analysis/investment_analysis": "0x73192dacb8f49021e79b1dd23e6ee3ca29d94c360612f652c4f279c9d592fe37",
+        "analytical_skills/forecasting": "0x2d9725eddf8a5988f02b68cc76c33ffa10a4689698d4629428ce49b7624144a9",
+        "automation": "0x39e20dc1a2c652c61c6038fa4c27eb04468c3e787dabd3d9944e01412b8a0564",
+        "automation/transaction_execution": "0xd9d94f1e3a89564433c5a55e2f978fbf204422a3caf302b8145e4562ee40c503",
+        "automation/workflow_automation": "0xaa48f7e4c77b65653e1a7f6e139783e82af640df73c66e432ab25426979de6c2",
+        "data_analysis": "0xbe6d2950b1fa76ee421a1fe954aef2e74ac3dc913fccfce43601d26965707da2",
+        "data_analysis/market_analysis": "0x268c3bf09621f6c17c1136a4933e13eea3a9f10aaee4eac617891e15dd26dc8a",
+        "data_analysis/pattern_recognition": "0xdd4e17ebf44ba8d430b8153a8eca4cfcc49c15701300dbd32e95abd502f115f1",
+        "data_analysis/quantitative_analysis": "0x9d04d57aefffa7a81874b3e07219630109af0ea997c19edf52e464329250897f",
+        "natural_language_processing": "0x3589087bc165ed78835871cbc01c3e9ee1ae7a4bacd1c264a04ca3ebdb691eca",
+        "natural_language_processing/analytical_reasoning": "0x2709fc47322c70f9d3d6af2289c258b5ad021fe5fb35d9d7ffc33ec0ee063920",
+        "natural_language_processing/analytical_reasoning/analytical_reasoning": "0x2709fc47322c70f9d3d6af2289c258b5ad021fe5fb35d9d7ffc33ec0ee063920",
+        "natural_language_processing/information_retrieval_synthesis": "0x4045032efa29fdde7c18ca04d22c91dd923e78cca720005ec5e4293b1ea1c870",
+        "natural_language_processing/information_retrieval_synthesis/search": "0x892d6be9922a124b1fe75dd485cdf78c5c3b8eb096907e4315ff6aaf3ea62a64",
+        "natural_language_processing/natural_language_generation": "0xe51b703b977c651bffe368da84b4d165c12644e54aede7e831047ad1059df057",
+        "natural_language_processing/natural_language_generation/text_generation": "0x16a8daeb3343b864361882857d4bbebac6aca15795dc558aa0e7fbc3e8647be8",
+        "natural_language_processing/natural_language_understanding": "0xd7652445b2d5e3364d16ee258ab1fbb42db7fb1ae00fe93347dc0705b6669168",
+        "natural_language_processing/natural_language_understanding/contextual_comprehension": "0xa20b52de0aaf46a3f5c3a28dc53733381d4ffe380f4ae7687f038d8d1779acfb",
+        "retrieval_augmented_generation": "0x0d7c96d17aa67f41f50f92227501028055b651d0e545fa55f9a515344216f817",
+        "retrieval_augmented_generation/retrieval_of_information": "0x4e8a462e99c27c58307166f12e778b25deed01ae781c4c5f6eda3b159d23a802",
+        "retrieval_augmented_generation/retrieval_of_information/retrieval_of_information": "0x4e8a462e99c27c58307166f12e778b25deed01ae781c4c5f6eda3b159d23a802",
+        "retrieval_augmented_generation/retrieval_of_information/search": "0x0f26b903542b5d30ebd9cdbeb47b3919da1acf0a5750302a93d21582e20b1217",
+        "tool_interaction": "0x528cf7b3bf2be545916bca63b09d8fdf556f86c50316a6613834b1de9e5f2019",
+        "tool_interaction/api_integration": "0xda550e795d6f98476c25748cfc2a9d2a73174f0f0f2e4ae2b20dd0e0b09327af",
+        "tool_interaction/blockchain_interaction": "0x71b96cfa48de061286fdf688c3308e309ffff2afc3032b6931c369da07dcde99",
+        "tool_interaction/tool_use_planning": "0xffea236f8bef36de25d2e8ac4a336f4c3a40549dd0376aacacfb48fd9dc0948f",
+        "tool_interaction/workflow_automation": "0xaa48f7e4c77b65653e1a7f6e139783e82af640df73c66e432ab25426979de6c2"
+      }
+    },
+    "oasfDomains": {
+      "kind": "oasf-domain",
+      "createPolicy": "resolve-only",
+      "selection": "term-id-only",
+      "entries": {
+        "base_domain": "0x76244d5b8680d37424191c1b43d1415c6b08d59db7fcac0b30ea69b13fe46385",
+        "energy": "0xc109e8ebae39cd43f94c74429fe29993d78f316dc0401761f78c7422a83ca6ed",
+        "energy/energy": "0xe10613ab3ff347455cfb751de548700beaf1874eef8a0a5d67e0c11459f07432",
+        "energy/energy_management": "0xbe9684d0c89e722eff4516fefc5049d1bd0af03aeedfab0184ceef3c985693e7",
+        "finance_and_business": "0x016f0c8e0d5bcf1525ef8bed4fa0fb91c82b362ab0784ff202cd12d3d08985e5",
+        "finance_and_business/crypto_assets": "0xfd7f47ae1b71c3c9c4336a84ec161f13a5d6db151f0b177352c63484a2b95725",
+        "finance_and_business/defi": "0x551307cb0a449e205f70795d86e15f459238bdcab649c4d8bdaaded4ced21da3",
+        "finance_and_business/finance": "0x327ea69224980fc51eb279e7b46a2b1977a9a44d78856753ac33e88a8ceffeac",
+        "finance_and_business/finance_and_business": "0x016f0c8e0d5bcf1525ef8bed4fa0fb91c82b362ab0784ff202cd12d3d08985e5",
+        "finance_and_business/investment_services": "0x3bdcd590dbdd0254786d687b2e7357a9e1c7690e2d9dd6bbc739f9933f1cdc7a",
+        "finance_and_business/trading": "0x7cd4a685a9f0f9dffd6f87c66a9df4ad8a39637508f9be2a5288bdd679ce771a",
+        "technology": "0x6e4256a82c45e4157de883d82e21df49cd3e69c0693ba5177b71fa7d20b3a90e",
+        "technology/blockchain": "0xa8437e51cbc509831fa85473a51b63c8c1b8d39c8fb476a665fc1663c5a01075",
+        "technology/blockchain/cryptocurrency": "0x4cc26acf2b44e1852c879cd47f2d08a67acb1d64859645d7681a42a59f14c35d",
+        "technology/smart_contracts": "0x08ff9888468aabe8e707358c6d35835bc27b8a31833a68be213d063a4398a8b4",
+        "technology/software_engineering": "0x68ae2b1c65b0bd9d3353afb27577b3a3a62818a8a2e32af7ac69a8e9a71b1890",
+        "technology/software_engineering/apis_integration": "0xdaa1d5f260675ceff53b555834c1f20b42a87bb54d3fb99f0fab59945bacaa0c"
+      }
+    }
+  },
+  "patterns": {
+    "agentIdentity": [
+      ["agent", "predicate:same-as", "identityObject"],
+      ["agent", "predicate:has-type", "type:ai-agent"],
+      ["agent", "predicate:implement", "standard:erc-8004"]
+    ],
+    "trustAssessment": [
+      ["agent", "predicate:has-trust-provider", "provider"],
+      ["agent", "predicate:has-trust-assessment", "assessmentSource"],
+      ["assessmentSource", "predicate:provided-by", "provider"],
+      ["assessmentSource", "predicate:has-type", "type:trust-assessment-source"]
+    ]
+  }
+}

@@ -2,9 +2,10 @@
   "plugins": [
     {
       "name": "intuition-protocol",
-      "description": "Canonical reference for producing correct Intuition Protocol transactions. Teaches agents correct ABIs, encoding patterns, addresses, and value calculations for atoms, triples, and vaults.",
+      "description": "Canonical skills for Intuition Protocol transactions and ERC-8004 partner integrations.",
       "skills": [
-        "./skills/intuition"
+        "./skills/intuition",
+        "./skills/erc8004-agent-layer"
       ]
     }
   ]

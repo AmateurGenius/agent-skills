@@ -6,11 +6,9 @@ Agent skills monorepo for the Intuition Protocol. Skills teach AI agents to corr
 
 ```
 agent-skills/
-├── skills/              # Individual skill directories
-│   └── intuition/       # Intuition Protocol skill
-│       ├── SKILL.md     # Skill definition (agent-facing)
-│       ├── README.md    # Human documentation
-│       └── reference/   # Supplementary references
+├── skills/                    # Individual skill directories
+│   ├── intuition/             # Core Intuition Protocol skill
+│   └── erc8004-agent-layer/   # ERC-8004 semantic planning skill
 ├── .claude-plugin/
 │   └── marketplace.json # skills.sh marketplace manifest
 ├── CLAUDE.md            # This file
@@ -50,4 +48,6 @@ agent-skills/
 - Native token is $TRUST (mainnet) / tTRUST (testnet), NOT ETH
 - MultiVault contract: `0x6E35cF57A41fA15eA0EaE9C33e751b01A784Fe7e` (mainnet)
 - V2 API uses `bytes32` term IDs, batch-only creation, bonding curves
-- Skills produce unsigned tx params -- no wallet/signing management
+- The core skill may produce unsigned tx params after its preparation gates
+- The ERC-8004 skill produces semantic plans only -- no transaction preparation
+- Skills do not manage wallets or signing
