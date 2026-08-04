@@ -19,6 +19,16 @@ versioned section as part of the release PR.
 
 ### Removed
 
+## erc8004-agent-layer 0.1.0 - 2026-08-04
+
+### Added
+
+- A dedicated, self-contained `erc8004-agent-layer` skill for canonical ERC-8004 identity, classification, trust-provider, and assessment-source semantic planning.
+- An executable, network-aware registry for exact shared-vocabulary term IDs, including canonical predicates, standards, chains, trust models, and OASF taxonomy entries.
+- Deterministic planner and validator scripts with fresh identity preflight checks, registry-extension stops, tamper detection, and canonical artifact output.
+- A non-transitive approval ladder that separates semantic planning, protocol preview, metadata pinning, testnet execution, mainnet preview, and mainnet execution.
+- Partner-facing install guidance, cold-start validation prompts, offline invariants, and read-only live registry verification for both Intuition networks.
+
 ## 0.5.0 - 2026-08-03
 
 ### Added

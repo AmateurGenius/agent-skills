@@ -1,6 +1,10 @@
 ---
 name: erc8004-agent-layer
 description: "Build and validate canonical ERC-8004 identity, classification, trust-provider, and assessment-source semantic plans on Intuition. Use when a partner needs to connect an ERC-8004 agent to provider-owned mutable assessments, resolve or create the canonical agent identity, enforce exact shared-vocabulary IDs, add registry-backed discovery enrichment, or generate the four-Triple trust pattern. This skill is a semantic-planning phase only: it must stop after returning the canonical plan and must not pin, prepare transactions, sign, or broadcast in the same user turn."
+license: MIT
+metadata:
+  author: jonathanprozzi
+  version: "0.1.0"
 ---
 
 # ERC-8004 Agent Layer
