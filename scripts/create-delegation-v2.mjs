@@ -177,7 +177,7 @@ const out = {
   delegation,
   delegationHash,
   domainHash,
-  path: "eip7702_direct",
+  path: "creation_only",
   mainAccount: delegatorAddress,
   caveatSummary: {
     allowedMethods: ["createAtoms(bytes[],uint256[])", "deposit(address,bytes32,uint256,uint256)"],
