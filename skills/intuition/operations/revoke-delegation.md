@@ -29,7 +29,7 @@ Before revoking a delegation, resolve the following:
 
 1. **Delegator address** — the authority owner that signed the delegation. Must match the `delegator` field of the Delegation struct.
 2. **Full Delegation struct** — the complete signed Delegation object (including `delegator`, `delegate`, `authority`, `caveats`, `salt`, and `signature`). You must have the original struct, not just a hash.
-3. **Revoker key** — the private key that controls the delegator address. In Path 1 (EIP-7702), this is the Main Account's EOA key. In Path 2 (separate Smart Account), this is the key that controls the Smart Account contract.
+3. **Revoker key** — the private key or signing authority that controls the delegator address. For the creation track (OWS), this is the Main Account's EOA key or the OWS key. For the deposit track (Smart Wallet), this is the signing authority embedded in or controlling the Smart Wallet contract.
 
 > **Security Warning:** The revoker key is the **delegator's** private key. It must **never** be written to disk by the agent or skill. It exists only as an in-memory session variable. The user is responsible for keeping it in their own wallet. The agent must not persist, log, or transmit the delegator's private key. Only the **agent's** private key may be saved to `~/.intuition/agent-wallet.json`.
 
@@ -40,7 +40,7 @@ Before revoking a delegation, resolve the following:
 ```typescript
 const delegationHash = await client.readContract({
   address: DELEGATION_MANAGER,
-  abi: parseAbi(['function getDelegationHash((address delegator,address delegate,bytes32 authority,(address enforcer,bytes terms,bytes args)[] caveats,uint256 salt,bytes signature) delegation) view returns (bytes32)']),
+  abi: parseAbi(['function getDelegationHash((address delegate,address delegator,bytes32 authority,(address enforcer,bytes terms,bytes args)[] caveats,uint256 salt,bytes signature) delegation) view returns (bytes32)']),
   functionName: 'getDelegationHash',
   args: [{
     delegator: delegation.delegator,
@@ -97,8 +97,8 @@ If you have the full Delegation object from `operations/create-delegation.md`, e
 ```json
 {
   "delegation": {
-    "delegator": "0x...",
     "delegate": "0x...",
+    "delegator": "0x...",
     "authority": "0x...",
     "caveats": [...],
     "salt": "0x...",
@@ -110,13 +110,14 @@ If you have the full Delegation object from `operations/create-delegation.md`, e
 Export the values:
 
 ```bash
-DELEGATOR="0x..."
+# NOTE: The Standard MetaMask uses field order (delegate FIRST, then delegator)
 DELEGATE="0x..."
+DELEGATOR="0x..."
 AUTHORITY="0x..."
 CAVEATS="[($ENFORCER1,$TERMS1,0x),($ENFORCER2,$TERMS2,0x)]"
 SALT="0x..."
 SIGNATURE="0x..."
-DELEGATION_STRUCT="($DELEGATOR,$DELEGATE,$AUTHORITY,$CAVEATS,$SALT,$SIGNATURE)"
+DELEGATION_STRUCT="($DELEGATE,$DELEGATOR,$AUTHORITY,$CAVEATS,$SALT,$SIGNATURE)"
 ```
 
 ### Option B: You Only Have the Delegation Parameters
@@ -124,13 +125,14 @@ DELEGATION_STRUCT="($DELEGATOR,$DELEGATE,$AUTHORITY,$CAVEATS,$SALT,$SIGNATURE)"
 If you have the raw parameters but not the full struct, reconstruct it:
 
 ```bash
-DELEGATOR="0x..."
+# NOTE: The Standard MetaMask uses field order (delegate FIRST, then delegator)
 DELEGATE="0x..."
+DELEGATOR="0x..."
 AUTHORITY="0x..."
 CAVEATS="[($ENFORCER,$TERMS,$ARGS)]"
 SALT="0x..."
 SIGNATURE="0x..."
-DELEGATION_STRUCT="($DELEGATOR,$DELEGATE,$AUTHORITY,$CAVEATS,$SALT,$SIGNATURE)"
+DELEGATION_STRUCT="($DELEGATE,$DELEGATOR,$AUTHORITY,$CAVEATS,$SALT,$SIGNATURE)"
 ```
 
 ### Option C: Query DelegationManager Events
@@ -219,7 +221,7 @@ After the wallet layer broadcasts the tx, confirm the delegation is disabled:
 
 ```bash
 # Read the canonical delegation hash from-chain
-DELEGATION_HASH=$(cast call $DELEGATION_MANAGER "getDelegationHash((address delegator,address delegate,bytes32 authority,(address enforcer,bytes terms,bytes args)[] caveats,uint256 salt,bytes signature))(bytes32)" "$DELEGATOR" "$DELEGATE" "$AUTHORITY" "[($ENFORCER,$TERMS,$ARGS)]" "$SALT" "$SIGNATURE" --rpc-url $RPC)
+DELEGATION_HASH=$(cast call $DELEGATION_MANAGER "getDelegationHash((address delegate,address delegator,bytes32 authority,(address enforcer,bytes terms,bytes args)[] caveats,uint256 salt,bytes signature))(bytes32)" "$DELEGATOR" "$DELEGATE" "$AUTHORITY" "[($ENFORCER,$TERMS,$ARGS)]" "$SALT" "$SIGNATURE" --rpc-url $RPC)
 # Verify the delegation is now disabled
 cast call $DELEGATION_MANAGER "disabledDelegations(bytes32)(bool)" "$DELEGATION_HASH" --rpc-url $RPC
 # Must return true
@@ -229,7 +231,7 @@ cast call $DELEGATION_MANAGER "disabledDelegations(bytes32)(bool)" "$DELEGATION_
 // Read the canonical delegation hash from-chain
 const delegationHash = await client.readContract({
   address: DELEGATION_MANAGER,
-  abi: parseAbi(['function getDelegationHash((address delegator,address delegate,bytes32 authority,(address enforcer,bytes terms,bytes args)[] caveats,uint256 salt,bytes signature) delegation) view returns (bytes32)']),
+  abi: parseAbi(['function getDelegationHash((address delegate,address delegator,bytes32 authority,(address enforcer,bytes terms,bytes args)[] caveats,uint256 salt,bytes signature) delegation) view returns (bytes32)']),
   functionName: 'getDelegationHash',
   args: [{
     delegator: delegation.delegator,
@@ -323,7 +325,7 @@ const data = encodeFunctionData({
 
 | Error | Cause | Fix |
 |---|---|---|
-| `DelegationManager_NotDelegator` | The transaction sender is not the delegator address | Ensure the revoker's address matches the `delegator` field. For Path 2, the Smart Account must execute the disable (e.g., via its owner). |
+| `DelegationManager_NotDelegator` | The transaction sender is not the delegator address | Ensure the revoker's address matches the `delegator` field. For Smart Wallet delegators, the contract must execute the disable (e.g., via its owner). |
 | `DelegationManager_AlreadyDisabled` | The delegation is already disabled | No action needed. The delegation is already invalid. |
 | `DelegationManager_InvalidDelegation` | The provided Delegation struct is malformed or has an invalid signature | Reconstruct the struct from the original signed object. Verify all fields are correct. |
 | `DelegationManager_FunctionNotFound` or transaction reverts (no reason) | Wrong function selector used | Use `disableDelegation((address,address,bytes32,(address,bytes,bytes)[],uint256,bytes))`, not `revokeDelegation(bytes32)`. |
@@ -336,7 +338,7 @@ const data = encodeFunctionData({
 1. **Disable is permanent.** Once a delegation is disabled on-chain, it can never be un-disabled (except via `enableDelegation`, but only the delegator can call that). The delegator must create a new delegation with a new salt.
 2. **Disable propagates downward.** Disabling a root delegation kills all redelegations that chain to it, regardless of depth. Disabling an intermediate node kills its subtree but leaves the parent chain intact.
 3. **Disable is on-chain; expiry is off-chain.** Disable requires gas and a transaction. Expiry is passive and free but only affects the single delegation that carries the expiry caveat.
-4. **Only the delegator can disable.** The DelegationManager enforces that the `msg.sender` of the disable transaction matches the `delegator` address in the Delegation struct. For contract delegators (Path 2), the contract's access control logic determines who can trigger disable.
+4. **Only the delegator can disable.** The DelegationManager enforces that the `msg.sender` of the disable transaction matches the `delegator` address in the Delegation struct. For contract delegators (Smart Wallet), the contract's access control logic determines who can trigger disable.
 5. **Disable does not affect past executions.** Any transactions already submitted and confirmed by the Agent remain valid. Disable only blocks future redemptions.
 6. **The Agent cannot self-revoke.** The Agent (delegate) cannot disable the delegation it holds. Only the delegator (or the delegator's authorized controller) can disable.
 7. **Caveats cannot prevent disable.** The DelegationManager's `disableDelegation` function is unconditional. Caveats restrict execution, not revocation. The delegator always retains the ability to disable.
@@ -353,14 +355,14 @@ const data = encodeFunctionData({
 DELEGATION_MANAGER="0xdb9B1e94B5b69Df7e401DDbedE43491141047dB3"
 RPC="https://testnet.rpc.intuition.systems/http"
 
-# Full delegation struct
-DELEGATOR="0x..."        # must match delegation.delegator
-DELEGATE="0x..."
+# Full delegation struct (NOTE: fork uses reversed order — delegate FIRST)
+DELEGATE="0x..."         # delegate first (fork order)
+DELEGATOR="0x..."        # delegator second
 AUTHORITY="0x0000..."
 CAVEATS="[($ENFORCER,$TERMS,0x)]"
 SALT="0x..."
 SIGNATURE="0x..."
-DELEGATION_STRUCT="($DELEGATOR,$DELEGATE,$AUTHORITY,$CAVEATS,$SALT,$SIGNATURE)"
+DELEGATION_STRUCT="($DELEGATE,$DELEGATOR,$AUTHORITY,$CAVEATS,$SALT,$SIGNATURE)"
 
 # Encode and send
 DISABLE_CALLDATA=$(cast calldata "disableDelegation((address,address,bytes32,(address,bytes,bytes)[],uint256,bytes))" "$DELEGATION_STRUCT")
@@ -371,7 +373,7 @@ cast send $DELEGATION_MANAGER $DISABLE_CALLDATA \
   --rpc-url $RPC
 
 # Verify
-DELEGATION_HASH=$(cast call $DELEGATION_MANAGER "getDelegationHash((address delegator,address delegate,bytes32 authority,(address enforcer,bytes terms,bytes args)[] caveats,uint256 salt,bytes signature))(bytes32)" "$DELEGATOR" "$DELEGATE" "$AUTHORITY" "[($ENFORCER,$TERMS,$ARGS)]" "$SALT" "$SIGNATURE" --rpc-url $RPC)
+DELEGATION_HASH=$(cast call $DELEGATION_MANAGER "getDelegationHash((address delegate,address delegator,bytes32 authority,(address enforcer,bytes terms,bytes args)[] caveats,uint256 salt,bytes signature))(bytes32)" "$DELEGATOR" "$DELEGATE" "$AUTHORITY" "[($ENFORCER,$TERMS,$ARGS)]" "$SALT" "$SIGNATURE" --rpc-url $RPC)
 cast call $DELEGATION_MANAGER "disabledDelegations(bytes32)(bool)" "$DELEGATION_HASH" --rpc-url $RPC
 # Output: true
 ```

@@ -101,54 +101,67 @@ console.log(JSON.stringify({ delegation, delegationHash }, null, 2))
 
 ## Prerequisites
 
-1. **Delegator address** — the authority owner (Main Account or Smart Account).
+1. **Delegator address** — the authority owner. For the creation track, this is the OWS address. For the deposit track, this is the Smart Wallet address.
 2. **Delegate address** — the Agent's wallet address (see `reference/delegation.md` → Agent Wallet Setup).
 3. **DelegationManager address** — from `reference/network-config.md` or `reference/delegation.md`.
 4. **MultiVault address** — from `reference/network-config.md`.
 5. **Caveat enforcer addresses** — from `reference/delegation.md`.
-6. **Path determination** — see Step 1 below.
+6. **Track determination** — see Step 1 below.
 7. **Off‑chain hashing capability** — use MetaMask's standard `@metamask/smart-accounts-kit` (recommended) or manual viem encoding (see `reference/off-chain-hashing.md`).
 
 ---
 
-## Step 1: Determine Delegation Path
+## Step 1: Determine Authority Track
 
-Before encoding, determine which architecture applies.
+Before encoding, determine which delegation track applies. See `reference/delegation.md` → Unified Delegation Architecture for the full model.
 
-### Path 1: EIP‑7702 Direct Delegation (Primary)
+### Creation Authority Track (for `createAtoms`, `createTriples`)
 
-Skip the approve step. The Main Account cannot and need not approve itself on MultiVault.
+Used when the Agent needs to create atoms or triples. This is a one-time setup track.
 
-```bash
-DELEGATOR="$MAIN_ACCOUNT"
-```
+**Setup (one-time, Main Account key required):**
 
-### Path 2: Separate Smart Account
+**Step A — Create OWS (one-time)**
 
-The Main Account must grant approval to the Smart Account on MultiVault before delegation can be redeemed.
+Generate a temporary EIP-7702 upgradable EOA. This is the OWS (Operational Wallet Setup). Its key exists only during the setup window.
 
-```bash
-# Check if approval already exists
-IS_APPROVED=$(cast call $MULTIVAULT "isApprovedFor(address,address)(bool)" $MAIN_ACCOUNT $SMART_ACCOUNT --rpc-url $RPC)
+**Step B — Main Account delegates to OWS**
 
-# If not approved, generate approval calldata
-# WARNING: approvalType 255 (APPROVE_ALL) reverts on mainnet. Use approvalType 3 (BOTH = DEPOSIT | REDEMPTION) instead.
-APPROVE_CALLDATA=$(cast calldata "approve(address,uint8)" $SMART_ACCOUNT 3)
-```
+Set `DELEGATOR="$MAIN_ACCOUNT"`, `DELEGATE="$OWS"`. The Main Account signs the creation-scoped delegation to OWS.
 
-| approvalType | Meaning |
-|---|---|
-| 0 | APPROVE_DEPOSIT |
-| 1 | APPROVE_CREATE_ATOM |
-| 2 | APPROVE_CREATE_TRIPLE |
-| 3 | APPROVE_DEPOSIT | APPROVE_REDEMPTION (BOTH) |
-| 255 | APPROVE_ALL — reverts on mainnet, do not use |
+**Step C — OWS delegates to Agent**
 
-The Main Account must broadcast this approve transaction once. It persists until revoked.
+Set `DELEGATOR="$OWS"`, `DELEGATE="$AGENT"`. The OWS signs the delegation to the Agent. This is cached for repeated creation operations.
+
+> **Pitfall:** OWS must be EIP-7702 upgraded (have contract code) before it can be a delegator. Use `cast send $OWS --auth $IMPL --private-key $OWS_PK`.
+> **Pitfall:** The OWS key is temporary. It only needs to exist during setup and any active creation windows. Discard after.
+
+### Deposit/Redemption Authority Track (for `deposit`, `redeem`, batch variants)
+
+Used when the Agent needs to deposit or redeem $TRUST. This is a standing track.
+
+**Setup (one-time, Main Account key required):**
+
+**Step A — Main Account approves Smart Wallet on MultiVault**
 
 ```bash
-DELEGATOR="$SMART_ACCOUNT"
+cast send $MULTIVAULT "approve(address,uint8)" $SMART_WALLET 3 --from $MAIN_ACCOUNT --rpc-url $RPC
 ```
+
+`approvalType = 3` (`BOTH = DEPOSIT | REDEMPTION`). Caller is Main Account; sender is `$SMART_WALLET`.
+
+> **Pitfall:** `approvalType = 255` (`APPROVE_ALL`) reverts on mainnet. Use `3` instead.
+> **Pitfall:** `isApprovedFor(address,address)` exists on mainnet but **not** on testnet. On testnet, call `approve(SmartWallet, 3)` directly without a pre-check.
+
+**Step B — Smart Wallet delegates to Agent**
+
+Set `DELEGATOR="$SMART_WALLET"`, `DELEGATE="$AGENT"`. The Smart Wallet signs the delegation to the Agent. This is cached for repeated deposit/redemption operations.
+
+### Both Tracks (full agent)
+
+For a full agent that creates AND deposits, set up both tracks:
+1. Creation track: Main Account → OWS → Agent
+2. Deposit track: Main Account → approve(Smart Wallet) + Smart Wallet → Agent
 
 ---
 
@@ -173,13 +186,13 @@ If creating a redelegation, read the parent delegation hash from-chain and set `
 
 ```bash
 # Read the canonical parent hash from-chain
-cast call $DELEGATION_MANAGER "getDelegationHash((address delegator,address delegate,bytes32 authority,(address enforcer,bytes terms,bytes args)[] caveats,uint256 salt,bytes signature))(bytes32)" "$PARENT_DELEGATOR" "$PARENT_DELEGATE" "$PARENT_AUTHORITY" "[($PARENT_ENFORCER,\"$PARENT_TERMS\",\"$PARENT_ARGS\")]" "$PARENT_SALT" "$PARENT_SIGNATURE" --rpc-url $RPC
+cast call $DELEGATION_MANAGER "getDelegationHash((address delegate,address delegator,bytes32 authority,(address enforcer,bytes terms,bytes args)[] caveats,uint256 salt,bytes signature))(bytes32)" "$PARENT_DELEGATOR" "$PARENT_DELEGATE" "$PARENT_AUTHORITY" "[($PARENT_ENFORCER,\"$PARENT_TERMS\",\"$PARENT_ARGS\")]" "$PARENT_SALT" "$PARENT_SIGNATURE" --rpc-url $RPC
 ```
 
 ```typescript
 const parentHash = await client.readContract({
   address: DELEGATION_MANAGER,
-  abi: parseAbi(['function getDelegationHash((address delegator,address delegate,bytes32 authority,(address enforcer,bytes terms,bytes args)[] caveats,uint256 salt,bytes signature) delegation) view returns (bytes32)']),
+  abi: parseAbi(['function getDelegationHash((address delegate,address delegator,bytes32 authority,(address enforcer,bytes terms,bytes args)[] caveats,uint256 salt,bytes signature) delegation) view returns (bytes32)']),
   functionName: 'getDelegationHash',
   args: [{
     delegator: parentDelegation.delegator,
@@ -297,9 +310,12 @@ CAVEAT_2="($NATIVE_TOKEN_ENFORCER,$SPEND_CAP_TERMS,0x)"
 ```
 
 ```typescript
+// Note: Property order in the object doesn't matter for EIP-712 hashing —
+// the type definition order in Step 5b determines the hash encoding.
+// The contract uses standard order (delegate first) in the type definition.
 const delegation = {
-  delegator: delegatorAddress,
-  delegate: delegateAddress,
+  delegate: delegateAddress,    // encoded FIRST (fork order)
+  delegator: delegatorAddress, // encoded SECOND
   authority: authority,
   caveats: [
     { enforcer: allowedMethodsEnforcer, terms: allowedMethodsTerms, args: '0x' },
@@ -341,11 +357,13 @@ against the verified contract source — do not guess.
 
 ### 5b: Define EIP‑712 Types
 
+> **CRITICAL:** The standard MetaMask struct field order is: `delegate` FIRST, then `delegator`. This is the opposite of standard OpenZeppelin. Using the standard order causes hash mismatch against on-chain `getDelegationHash()`.
+
 ```typescript
 const types = {
   Delegation: [
-    { name: 'delegator', type: 'address' },
-    { name: 'delegate', type: 'address' },
+    { name: 'delegate', type: 'address' },   // FIRST (standard order)
+    { name: 'delegator', type: 'address' },  // SECOND
     { name: 'authority', type: 'bytes32' },
     { name: 'caveats', type: 'Caveat[]' },
     { name: 'salt', type: 'uint256' },
@@ -467,7 +485,7 @@ const delegationHash = getDelegationHash(delegation)
 **Using on-chain (optional)**
 
 ```bash
-cast call $DELEGATION_MANAGER "getDelegationHash((address delegator,address delegate,bytes32 authority,(address enforcer,bytes terms,bytes args)[] caveats,uint256 salt,bytes signature))(bytes32)" \
+cast call $DELEGATION_MANAGER "getDelegationHash((address delegate,address delegator,bytes32 authority,(address enforcer,bytes terms,bytes args)[] caveats,uint256 salt,bytes signature))(bytes32)" \
   "($DELEGATOR,$DELEGATE,$AUTHORITY,[($ENFORCER,$TERMS,$ARGS)],$SALT,$SIGNATURE)" \
   --rpc-url $RPC
 ```
@@ -485,7 +503,7 @@ const offChainHash = computeDelegationHash(delegation)
 // 2. Read canonical hash from-chain
 const onChainHash = await client.readContract({
   address: DELEGATION_MANAGER,
-  abi: parseAbi(['function getDelegationHash((address delegator,address delegate,bytes32 authority,(address enforcer,bytes terms,bytes args)[] caveats,uint256 salt,bytes signature) delegation) view returns (bytes32)']),
+  abi: parseAbi(['function getDelegationHash((address delegate,address delegator,bytes32 authority,(address enforcer,bytes terms,bytes args)[] caveats,uint256 salt,bytes signature) delegation) view returns (bytes32)']),
   functionName: 'getDelegationHash',
   args: [{
     delegator: delegation.delegator,
@@ -535,7 +553,7 @@ const { ethers } = require('ethers');
 const fs = require('fs');
 const delegation = JSON.parse(fs.readFileSync('delegation.json')).delegation;
 const encoded = new ethers.AbiCoder().encode(
-  ['(address delegator, address delegate, bytes32 authority, (address enforcer, bytes terms, bytes args)[] caveats, uint256 salt, bytes signature)'],
+  ['(address delegate,address delegator,bytes32 authority,(address enforcer,bytes terms,bytes args)[] caveats,uint256 salt,bytes signature)'],
   [delegation]
 );
 console.log('0x3ed01015' + encoded.slice(2)); // enableDelegation selector
@@ -554,7 +572,7 @@ cast send $DELEGATION_MANAGER $ENABLE_CALLDATA \
 
 ```bash
 cast call $DELEGATION_MANAGER "disabledDelegations(bytes32)(bool)" \
-  "$(cast call $DELEGATION_MANAGER \"getDelegationHash((address delegator,address delegate,bytes32 authority,(address enforcer,bytes terms,bytes args)[] caveats,uint256 salt,bytes signature))(bytes32)\" \"$(node -e \"const d=JSON.parse(require('fs').readFileSync('delegation.json')).delegation; console.log(d.delegator, d.delegate, d.authority, JSON.stringify(d.caveats), d.salt, d.signature)\")\" --rpc-url $RPC)" \
+  "$(cast call $DELEGATION_MANAGER \"getDelegationHash((address delegate,address delegator,bytes32 authority,(address enforcer,bytes terms,bytes args)[] caveats,uint256 salt,bytes signature))(bytes32)\" \"$(node -e \"const d=JSON.parse(require('fs').readFileSync('delegation.json')).delegation; console.log(d.delegate, d.delegator, d.authority, JSON.stringify(d.caveats), d.salt, d.signature)\")\" --rpc-url $RPC)" \
   --rpc-url $RPC
 # Must return false
 ```
@@ -604,12 +622,12 @@ const redelegation = {
 
 | Error | Cause | Fix |
 |---|---|---|
-| `MultiVault_CannotApproveOrRevokeSelf` | Path 1 attempted approve | Skip approve in Path 1. |
+| `MultiVault_CannotApproveOrRevokeSelf` | Creation track attempted approve | Skip approve for creation track. It is only needed for the deposit track. |
 | `DelegationManager_InvalidSignature` | Signature does not recover to delegator | Verify signing key; use correct EIP‑712 digest. |
 | `DelegationManager_AuthorityNotFound` | Redelegation uses invalid parent hash | Verify parent hash computed correctly off‑chain. |
 | `DelegationManager_CaveatViolation` | Enforcer address invalid or terms malformed | Verify enforcer address and ABI encoding. |
 | `TypeError` (ABI mismatch) | Wrong struct encoding | Ensure field order and types match the Delegation struct. |
-| `MultiVault_Unauthorized` (at redemption) | Path 2: Smart Account lacks approval | Main Account must call `approve` before redemption. |
+| `MultiVault_Unauthorized` (at redemption) | Deposit track: Smart Wallet lacks approval | Main Account must call `approve(SmartWallet, 3)` on MultiVault before deposit delegation redemption. |
 
 ---
 
