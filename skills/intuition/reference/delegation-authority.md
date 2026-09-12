@@ -16,7 +16,7 @@ Autonomous authority verification gate for agents operating under ERC-7710 deleg
 - [Step 4: Expiry Check](#step-4-expiry-check)
 - [Step 5: Daily Budget Check (Agent-Side Self-Enforcement)](#step-5-daily-budget-check-agentside-selfenforcement)
 - [Step 6: Caveat Compliance for Intended Operation](#step-6-caveat-compliance-for-intended-operation)
-- [Step 7: MultiVault Authorization Check (Path 2 Only)](#step-7-multivault-authorization-check-path-2-only)
+- [Step 7: MultiVault Authorization Check (Deposit Track Only)](#step-7-multivault-authorization-check-deposit-track-only)
 - [Step 8: Receiver Consistency Check](#step-8-receiver-consistency-check)
 - [Step 9: Decision Tree and Output](#step-9-decision-tree-and-output)
 - [Integration with Autonomous Policy](#integration-with-autonomous-policy)
@@ -35,9 +35,9 @@ The agent must persist the following in its session state:
 | `delegationHash` | bytes32 | Precomputed off-chain for tracking. |
 | `cumulativeTrustSpent` | uint256 | Running total of TRUST value sent in delegated redemptions. Reset only when the delegation changes. |
 | `redemptionCount` | uint256 | Running count of redemption calls. Reset only when the delegation changes. |
-| `delegationMode` | `'eip7702' \| 'separate_smart_account' \| 'direct'` | Which path is active. `direct` means no delegation (fallback to standard Path B). |
+| `delegationMode` | `'creation_only' \| 'deposit_only' \| 'both' \| 'direct'` | Which track is active. `direct` means no delegation (fallback to standard Path B). |
 | `mainAccount` | address | The ultimate beneficiary (Main Account). Used for receiver binding. |
-| `smartAccount` | address \| null | The Smart Account address (Path 2 only). Used for approval checks. |
+| `smartWallet` | address \| null | The Smart Wallet address (deposit track only). Used for approval checks. |
 | `dailyBudgetSpent` | uint256 | TRUST spent today (agent-side self-enforcement). |
 | `dailyBudgetDate` | number | UTC day index (days since epoch) for the current budget window. |
 
@@ -96,7 +96,7 @@ The agent receives the delegation object off-chain (e.g., via environment variab
     "signature": "0x<signature>"
   },
   "delegationHash": "0x<off-chain-computed-hash>",
-  "path": "eip7702_direct | separate_smart_account",
+  "path": "creation_only | deposit_only | both",
   "mainAccount": "0x<main-account-address>"
 }
 ```
@@ -117,9 +117,9 @@ if (delegation.delegate.toLowerCase() !== agentAddress.toLowerCase()) {
 // Cache in agent state
 agentState.heldDelegation = delegation
 agentState.delegationHash = delegationHash
-agentState.delegationMode = path === 'eip7702_direct' ? 'eip7702' : 'separate_smart_account'
+agentState.delegationMode = path  // 'creation_only' | 'deposit_only' | 'both'
 agentState.mainAccount = mainAccount
-agentState.smartAccount = path === 'separate_smart_account' ? delegation.delegator : null
+agentState.smartWallet = (path === 'deposit_only' || path === 'both') ? delegation.delegator : null
 ```
 
 ---
@@ -157,8 +157,8 @@ against the verified contract source — do not guess.
 ```typescript
 const types = {
   Delegation: [
-    { name: 'delegator', type: 'address' },
-    { name: 'delegate', type: 'address' },
+    { name: 'delegate', type: 'address' },   // FIRST (standard order)
+    { name: 'delegator', type: 'address' },  // SECOND
     { name: 'authority', type: 'bytes32' },
     { name: 'caveats', type: 'Caveat[]' },
     { name: 'salt', type: 'uint256' },
@@ -178,8 +178,8 @@ const recovered = await recoverTypedDataAddress({
   types,
   primaryType: 'Delegation',
   message: {
-    delegator: delegation.delegator,
     delegate: delegation.delegate,
+    delegator: delegation.delegator,
     authority: delegation.authority,
     caveats: delegation.caveats,
     salt: delegation.salt,
@@ -262,13 +262,13 @@ full struct but excludes `signature` before hashing.
 
 ```bash
 # Pass the full delegation object; getDelegationHash strips signature internally
-cast call $DELEGATION_MANAGER "getDelegationHash((address delegator,address delegate,bytes32 authority,(address enforcer,bytes terms,bytes args)[] caveats,uint256 salt,bytes signature))(bytes32)" "$DELEGATOR" "$DELEGATE" "$AUTHORITY" "[($ENFORCER,\"$TERMS\",\"$ARGS\")]" "$SALT" "$SIGNATURE" --rpc-url $RPC
+cast call $DELEGATION_MANAGER "getDelegationHash((address delegate,address delegator,bytes32 authority,(address enforcer,bytes terms,bytes args)[] caveats,uint256 salt,bytes signature))(bytes32)" "$DELEGATOR" "$DELEGATE" "$AUTHORITY" "[($ENFORCER,\"$TERMS\",\"$ARGS\")]" "$SALT" "$SIGNATURE" --rpc-url $RPC
 ```
 
 ```typescript
 const delegationHash = await client.readContract({
   address: DELEGATION_MANAGER,
-  abi: parseAbi(['function getDelegationHash((address delegator,address delegate,bytes32 authority,(address enforcer,bytes terms,bytes args)[] caveats,uint256 salt,bytes signature) delegation) view returns (bytes32)']),
+  abi: parseAbi(['function getDelegationHash((address delegate,address delegator,bytes32 authority,(address enforcer,bytes terms,bytes args)[] caveats,uint256 salt,bytes signature) delegation) view returns (bytes32)']),
   functionName: 'getDelegationHash',
   args: [{
     delegator: delegation.delegator,
@@ -312,7 +312,7 @@ import { keccak256, encodeAbiParameters, parseAbiParameters } from 'viem'
 // Read the canonical delegation hash from-chain
 const delegationHash = await client.readContract({
   address: DELEGATION_MANAGER,
-  abi: parseAbi(['function getDelegationHash((address delegator,address delegate,bytes32 authority,(address enforcer,bytes terms,bytes args)[] caveats,uint256 salt,bytes signature) delegation) view returns (bytes32)']),
+  abi: parseAbi(['function getDelegationHash((address delegate,address delegator,bytes32 authority,(address enforcer,bytes terms,bytes args)[] caveats,uint256 salt,bytes signature) delegation) view returns (bytes32)']),
   functionName: 'getDelegationHash',
   args: [{
     delegator: delegation.delegator,
@@ -450,10 +450,13 @@ if (!allowedMethodsCaveat) {
   throw new Error('caveat_missing: no AllowedMethodsEnforcer found')
 }
 
-const allowedSelectors = decodeAbiParameters(
-  [{ type: 'bytes4[]' }],
-  allowedMethodsCaveat.terms
-)[0]
+// Parse raw concatenated bytes4 selectors from terms
+// Terms format: 0x + selector1 (8 hex chars) + selector2 (8 hex chars) + ...
+const termsHex = allowedMethodsCaveat.terms.slice(2); // strip 0x
+const allowedSelectors = [];
+for (let i = 0; i < termsHex.length; i += 8) {
+  allowedSelectors.push('0x' + termsHex.slice(i, i + 8));
+}
 
 if (!allowedSelectors.includes(intendedSelector)) {
   throw new Error(`method_not_allowed: selector ${intendedSelector} not in delegation allowlist`)
@@ -512,34 +515,36 @@ if (callsCaveat) {
 
 ---
 
-## Step 7: MultiVault Authorization Check (Path 2 Only)
+## Step 7: MultiVault Authorization Check (Deposit Track Only)
 
-If `delegationMode === 'separate_smart_account'`, simulate the inner call from the Smart Account's context to confirm the approval exists.
+If `delegationMode` is `'deposit_only'` or `'both'`, simulate the inner call from the Smart Wallet's context to confirm the approval exists. Skip for `creation_only` or `direct` modes.
 
 ```bash
-# Simulate the inner MultiVault call from the Smart Account's context
-cast call $MULTIVAULT $INNER_CALLDATA --from $SMART_ACCOUNT --rpc-url $RPC
+# Simulate the inner MultiVault call from the Smart Wallet's context
+cast call $MULTIVAULT $INNER_CALLDATA --from $SMART_WALLET --rpc-url $RPC
 # If this reverts with MultiVault_Unauthorized, the approval is missing
 ```
 
 ```typescript
-// Simulate the call
-try {
-  await client.call({
-    account: smartAccount,
-    to: MULTIVAULT,
-    data: innerCalldata,
-    value: proposedValue,
-  })
-} catch (err) {
-  if (err.message.includes('Unauthorized')) {
-    throw new Error('multivault_unauthorized: Smart Account lacks approval from Main Account')
+// Simulate the call (only for deposit track)
+if (agentState.delegationMode === 'deposit_only' || agentState.delegationMode === 'both') {
+  try {
+    await client.call({
+      account: agentState.smartWallet,
+      to: MULTIVAULT,
+      data: innerCalldata,
+      value: proposedValue,
+    })
+  } catch (err) {
+    if (err.message.includes('Unauthorized')) {
+      throw new Error('multivault_unauthorized: Smart Wallet lacks approval from Main Account')
+    }
+    throw err
   }
-  throw err
 }
 ```
 
-> Skip this step for Path 1 (EIP-7702). The Main Account does not need approval to act as itself.
+> Skip this step for creation track or direct mode. The OWS does not need MultiVault approval for creation operations.
 
 ---
 
@@ -614,7 +619,7 @@ const executionCallData = solidityPacked(
 // expects in _permissionContexts.
 const permissionContext = await client.readContract({
   address: DELEGATION_MANAGER,
-  abi: parseAbi(['function getDelegationHash((address delegator,address delegate,bytes32 authority,(address enforcer,bytes terms,bytes args)[] caveats,uint256 salt,bytes signature) delegation) view returns (bytes32)']),
+  abi: parseAbi(['function getDelegationHash((address delegate,address delegator,bytes32 authority,(address enforcer,bytes terms,bytes args)[] caveats,uint256 salt,bytes signature) delegation) view returns (bytes32)']),
   functionName: 'getDelegationHash',
   args: [{
     delegator: delegation.delegator,
@@ -627,10 +632,10 @@ const permissionContext = await client.readContract({
 })
 
 // Build outer transaction
-// _permissionContexts[i] = abi.encode(Delegation[], bytes32 delegationHash)
+// _permissionContexts[i] = abi.encode(Delegation[]) — no hash tuple
 const permissionContextTuple = encodeAbiParameters(
-  parseAbiParameters('((address delegate,address delegator,bytes32 authority,(address enforcer,bytes terms,bytes args)[] caveats,uint256 salt,bytes signature)[] delegations, bytes32 delegationHash)'),
-  [{ delegations: [delegation], delegationHash }]
+  parseAbiParameters('(address delegate,address delegator,bytes32 authority,(address enforcer,bytes terms,bytes args)[] caveats,uint256 salt,bytes signature)[]'),
+  [[delegation]]
 )
 
 const outerData = encodeFunctionData({
@@ -666,7 +671,7 @@ const output = {
       methodAllowlist: 'pass',
       spendCap: 'pass',
       callLimit: 'pass',
-      multivaultApproval: agentState.delegationMode === 'eip7702' ? 'n/a' : 'pass',
+      multivaultApproval: (agentState.delegationMode === 'deposit_only' || agentState.delegationMode === 'both') ? 'pass' : 'n/a',
       receiver: 'pass',
     },
   },
@@ -742,8 +747,7 @@ This authority gate is inserted into the existing Path B decision flow from `ref
     5f. Verify intended operation selector is in AllowedMethods caveat.
     5g. Verify proposed value does not exceed NativeTokenTransferAmount caveat.
     5h. Verify call count does not exceed LimitedCalls caveat.
-    5i. If separate_smart_account, simulate inner call from Smart Account
-        to confirm MultiVault approval exists.
+    5i. If deposit track (deposit_only or both), simulate inner call from Smart Wallet to confirm MultiVault approval exists.
     5j. Verify receiver == mainAccountAddress for receiver-bearing ops.
     5k. If any check fails → emit delegation_failure object; STOP (exit code 3).
 06. Validate term binding (isTermCreated, getVaultType, etc.).
@@ -773,9 +777,9 @@ Add to `reference/autonomous-policy.md`:
 
 ```typescript
 interface DelegationPolicy {
-  mode: 'eip7702' | 'separate_smart_account' | 'direct'
+  mode: 'creation_only' | 'deposit_only' | 'both' | 'direct'
   mainAccountAddress?: `0x${string}`    // Required for delegated modes
-  smartAccountAddress?: `0x${string}`   // Required for separate_smart_account
+  smartWalletAddress?: `0x${string}`    // Required for deposit track
   requireApprovalCheck: boolean         // If true, simulate MultiVault approval
   dailyBudgetWei?: string              // Agent-side self-enforced daily limit
 }
@@ -798,7 +802,7 @@ interface DelegationPolicy {
 | `spend_cap_exceeded` | Cumulative spend + proposed value > NativeTokenTransferAmount cap | The delegator must issue a new delegation with a higher cap, or the agent must reduce the operation value. |
 | `call_limit_exceeded` | Redemption count >= LimitedCalls caveat | The delegator must issue a new delegation with a higher call limit. |
 | `authority_not_found` | Redelegation uses a parent delegation hash that does not exist or is invalid | Verify the parent delegation was created and signed correctly. Compute the parent hash off-chain (see `reference/off-chain-hashing.md`) and ensure the `authority` field matches it. |
-| `multivault_unauthorized` | Path 2: Smart Account lacks approval from Main Account | Main Account must call `approve(SmartAccount, type)` on MultiVault. |
+| `multivault_unauthorized` | Deposit track: Smart Wallet lacks approval from Main Account | Main Account must call `approve(SmartWallet, 3)` on MultiVault. |
 | `receiver_mismatch` | Receiver in inner tx does not match `mainAccountAddress` | Correct the receiver argument to the Main Account address before encoding. |
 
 ---
@@ -809,13 +813,13 @@ interface DelegationPolicy {
 2. **The Agent decides autonomously.** Once the delegation is received, the agent verifies and acts without human approval per operation. The caveats are the policy boundary.
 3. **State is cumulative across redemptions.** `cumulativeTrustSpent`, `redemptionCount`, and `dailyBudgetSpent` persist across operations within a single delegation. They reset only when a new delegation is loaded.
 4. **The Agent never reveals the delegation to untrusted parties.** The signed delegation object is sensitive. The agent stores it in secure session state and only presents it to the DelegationManager during redemption.
-5. **Path 1 and Path 2 are mutually exclusive.** An agent cannot hold both an EIP-7702 delegation and a separate Smart Account delegation simultaneously. The `delegationMode` field determines which path is active.
+5. **Tracks can compose.** An agent can hold both a creation-track delegation (OWS) and a deposit-track delegation (Smart Wallet) simultaneously. The `delegationMode` field is `'both'` in this case. Each track is verified independently.
 6. **Receiver binding is non-negotiable.** For receiver-bearing operations, the receiver MUST be the Main Account. Any other value is a hard failure.
 7. **Daily budget is agent-side only.** The `dailyBudgetWei` limit is not enforced on-chain. It is a self-imposed limit that the agent tracks and enforces independently of caveat enforcers.
 8. **Layered verification order matters.** Run ERC-1271 `isValidSignature` in isolation (Layer 1). Pin domain hash from `getDomainHash()` on-chain (Layer 2). Verify struct hash via `getDelegationHash()` on-chain (Layer 3). Recover signature to correct address (Layer 4). Encode nested transaction only after all layers pass.
 9. **`getDelegationHash(Delegation)` exists on-chain** (`0x66134607`). `getDomainHash()` also exists (`0x83ebb771`). Off-chain computation is preferred only to avoid an extra RPC round-trip. Always read the domain separator from `getDomainHash()` — do not reconstruct it from guessed `name`/`version` literals.
 10. **`disabledDelegations(bytes32)` is the only revocation view.** Call `getDelegationHash()` on-chain and pass the returned bytes32 to `disabledDelegations(bytes32)`. Do not use `isRevoked(bytes32)` or `isDisabled(Delegation)` — neither exists.
-11. **`_permissionContexts[i]` is a 2-element tuple: `abi.encode(Delegation[], bytes32 delegationHash)`.** The `delegationHash` must equal the on-chain `getDelegationHash(delegation)` result. Do not pass only the hash or only the struct.
+11. **`_permissionContexts[i]` is `abi.encode(Delegation[])` — a flat array of Delegation structs.** There is NO separate `bytes32 delegationHash` tuple element. Including one causes an `abi.decode` mismatch. This differs from standard MetaMask Delegation Framework which uses a 2-element tuple.
 12. **`_executionCallData` must use `solidityPacked(address,uint256,bytes)`.** The inner execution data for ERC-7579 single-call mode must be flat-packed. Using `abi.encode(tuple)` adds a 32-byte offset pointer that shifts all fields and causes `decodeSingle` to read garbage.
 13. **`AllowedMethodsEnforcer` terms are raw bytes4 selectors.** `decodeSingle()` reads 4-byte chunks directly from `_terms`. Using `abi.encode(bytes4[])` produces an array header that is misread as the first selector.
 14. **`LimitedCallsEnforcer` terms are `abi.encode(uint256)`.** NOT raw bytes.

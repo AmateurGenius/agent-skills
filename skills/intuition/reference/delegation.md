@@ -62,46 +62,100 @@ never be mixed or stored together.
 
 ---
 
-## Two Delegation Paths
+## Unified Delegation Architecture
 
-### Path 1: EIP-7702 Direct Delegation (Conditionally Available)
+> **Model (2026-09):** "Main Account = beneficial owner everywhere." The old
+> "Path 1 vs Path 2" dichotomy is retired. Delegated operations now use two
+> **complementary tracks** that compose together:
+>
+> 1. **Creation Authority** — Main Account → OWS → Agent (one-time, revocable)
+> 2. **Deposit/Redemption Authority** — Main Account → approve(Smart Wallet) → Smart Wallet → Agent (standing)
+>
+> Both tracks share the same DelegationManager, encoding rules, and signing
+> flow. They differ only in delegator type, setup, and lifecycle.
 
-The Main Account (EOA) signs an EIP-7702 authorization tuple, upgrading its
-own address to execute smart contract logic. The Main Account then signs an
-ERC-7710 delegation directly to the Agent.
+### Creation Authority Track
 
-> **Status:** Both testnet and mainnet confirmed working. Earlier testnet `execution reverted` failures were caused by MetaMask UI / RPC transport limitations, not protocol-level blocks. The chain accepts type-0x04 transactions. If you encounter broadcast issues, verify with a zero-value `cast send <delegator> 0x --auth <DelegationManager>` first or fall back to Path 2. ERC-1271 `isValidSignature` is implemented correctly on EIP-7702 upgraded accounts (ECDSA.recover == address(this)).
+Used for `createAtoms` and `createTriples` — operations that have no `receiver` parameter.
+
+**Setup (one-time, Main Account key required):**
+1. Main Account signs EIP-7702 delegation to OWS (creation authority)
+2. OWS signs EIP-712 delegation to Agent (cached until revoked)
+3. Optionally: revoke OWS→Main Account delegation after creation is complete
+
+**Operation:**
+- Agent calls `redeemDelegations` with the chain `[Main Account → OWS, OWS → Agent]`
+- `msg.sender` at MultiVault = OWS
+- Atoms/triples are created with OWS as `msg.sender` in events
+- This is acceptable: creation attribution does not carry semantic weight
 
 **Characteristics:**
-- No separate smart contract address.
-- No MultiVault `approve` step needed (self-approval reverts).
-- `msg.sender` at MultiVault IS the Main Account for all operations.
-- All attribution (atoms, triples, shares) flows to the Main Account natively.
+- OWS is a temporary EIP-7702 upgraded wallet (session-only)
+- Main Account key used once for setup, then shelved
+- Revocable: revoke OWS delegation after creation setup
+- No `approve` needed on MultiVault (creation doesn't check approvals)
 
-**Precondition:**
-```
-Main Account → signs EIP-7702 authorization → becomes its own smart account
-Main Account → signs ERC-7710 delegation → Agent
-```
+### Deposit/Redemption Authority Track
 
-### Path 2: Separate Smart Account (UUPS Proxy / DeleGator)
+Used for `deposit`, `redeem`, `depositBatch`, `redeemBatch` — operations with a `receiver` parameter.
 
-The Main Account owns a separate Smart Account contract (a UUPS proxy or
-DeleGator). The Main Account must first call `approve(SmartAccount, type)` on
-MultiVault. The Smart Account then signs the ERC-7710 delegation to the Agent.
+**Setup (one-time, Main Account key required):**
+1. Main Account calls `approve(SmartWallet, 3)` on MultiVault (signed in MetaMask)
+2. Smart Wallet signs EIP-712 delegation to Agent (cached)
+3. Optional: Main Account grants ERC-7715 stream to Smart Wallet for funding
+
+**Operation:**
+- Agent calls `redeemDelegations` with delegation `[Smart Wallet → Agent]`
+- `msg.sender` at MultiVault = Smart Wallet
+- `receiver = Main Account` routes shares correctly
+- Main Account is the beneficial owner of all positions
 
 **Characteristics:**
-- Distinct Smart Account address from Main Account.
-- Requires explicit `approve` on MultiVault before delegation can execute
-  receiver-bearing operations (`deposit`, `redeem`, `depositBatch`, `redeemBatch`).
-- `msg.sender` at MultiVault is the Smart Account address.
-- `createAtoms` and `createTriples` attribute to the Smart Account address,
-  not the Main Account.
+- Smart Wallet is a persistent contract or agent-held key
+- `approve(SmartWallet, 3)` is standing until revoked
+- Revocable: revoke Smart Wallet delegation or remove `approve`
+- `receiver` override guarantees Main Account ownership
 
-**Precondition:**
+### Key Separation (4 roles)
+
+| Role | Owner | Where it lives | May the skill persist it? |
+|------|-------|----------------|---------------------------|
+| **Main Account key** | User / Main Account | User's wallet only (MetaMask, hardware) | **NO** |
+| **OWS key** | Temporary (session-only) | Session memory, discarded after setup | Optional — only during setup window |
+| **Smart Wallet key** | Agent | Agent secure storage | **YES** |
+| **Agent key** | Agent | `~/.intuition/agent-wallet.json` (chmod 600) | **YES** |
+
+**Hard rules:**
+1. The agent/skill must **never** write the Main Account private key to disk, logs, chat, or any artifact.
+2. The Main Account private key is a session-only variable during setup. It is not persisted.
+3. Only the Agent's and Smart Wallet's private keys may be saved.
+
+### When to use which track
+
+| Scenario | Track |
+|---|---|
+| Create atoms/triples only | Creation Authority |
+| Deposit/redeem only | Deposit/Redemption Authority |
+| Full agent (create + deposit) | Both tracks (compose) |
+| No delegation needed | Direct (Path B) — no delegation |
+
+### Composition example (full agent setup)
+
 ```
-Main Account → approve(SmartAccount, approvalType) on MultiVault
-Smart Account → signs ERC-7710 delegation → Agent
+Phase 1 — Setup (Main Account key, one-time):
+  Main Account --(EIP-7702 delegation)--> OWS
+  OWS --(EIP-712 delegation)--> Agent
+  Main Account --(approve)--> Smart Wallet
+  Smart Wallet --(EIP-712 delegation)--> Agent
+  [Main Account key goes back in vault]
+
+Phase 2 — Operations (Agent autonomous):
+  Agent creates atoms:  redeemDelegations([MainAcc→OWS, OWS→Agent], createAtoms(...))
+  Agent deposits:        redeemDelegations([SmartWallet→Agent], deposit(receiver: MainAcc, ...))
+
+Phase 3 — Management (optional):
+  Revoke OWS→Main Account delegation (creation setup complete)
+  Revoke Smart Wallet delegation (kill switch for deposits)
 ```
 
 ---
@@ -286,7 +340,7 @@ DISABLE_CALLDATA=$(cast calldata "disableDelegation((address,address,bytes32,(ad
 const hash = await walletClient.writeContract({
   address: DELEGATION_MANAGER,
   abi: parseAbi([
-    'function disableDelegation((address delegator, address delegate, bytes32 authority, (address enforcer, bytes terms, bytes args)[] caveats, uint256 salt, bytes signature) delegation) external',
+    abi: parseAbi(['function getDelegationHash((address delegate,address delegator,bytes32 authority,(address enforcer,bytes terms,bytes args)[] caveats,uint256 salt,bytes signature) delegation) view returns (bytes32)']),
   ]),
   functionName: 'disableDelegation',
   args: [delegation],
@@ -351,8 +405,8 @@ contract source — do not guess.
 ```typescript
 const types = {
   Delegation: [
-    { name: 'delegator', type: 'address' },
-    { name: 'delegate', type: 'address' },
+    { name: 'delegate', type: 'address' },   // FIRST (standard order)
+    { name: 'delegator', type: 'address' },  // SECOND
     { name: 'authority', type: 'bytes32' },
     { name: 'caveats', type: 'Caveat[]' },
     { name: 'salt', type: 'uint256' },
@@ -376,8 +430,8 @@ const signature = await signTypedData({
   types,
   primaryType: 'Delegation',
   message: {
-    delegator: delegatorAddress,
     delegate: delegateAddress,
+    delegator: delegatorAddress,
     authority: ROOT_AUTHORITY,
     caveats: [
       { enforcer: allowedMethodsEnforcer, terms: allowedMethodsTerms, args: '0x' },
@@ -401,8 +455,8 @@ const recovered = await recoverTypedDataAddress({
   types,
   primaryType: 'Delegation',
   message: {
-    delegator: delegation.delegator,
     delegate: delegation.delegate,
+    delegator: delegation.delegator,
     authority: delegation.authority,
     caveats: delegation.caveats,
     salt: delegation.salt,
@@ -568,14 +622,15 @@ const hash = await walletClient.writeContract({
 ## Permission Context Encoding
 
 The `redeemDelegations` function accepts `bytes[] calldata _permissionContexts`.
-**Each element must be a 2-element ABI tuple: `abi.encode(Delegation[], bytes32 delegationHash)`.**
+**Each element must be `abi.encode(Delegation[])` — a flat array of Delegation structs.**
 
-The `delegationHash` must equal the on-chain `getDelegationHash(delegation)` result.
+The contract decodes each context with `abi.decode(_permissionContexts[batchIndex_], (Delegation[]))`.
+There is NO separate `bytes32 delegationHash` tuple element. Including one causes
+an `abi.decode` mismatch.
 
-### Why a tuple?
-
-`redeemDelegations` does `abi.decode(_permissionContexts[i], (Delegation[], bytes32))`.
-Passing only the hash or only the struct causes `require(false)` during decode.
+> **Note:** This differs from the standard MetaMask Delegation Framework which uses
+> a 2-element tuple `(Delegation[], bytes32 delegationHash)`. The Intuition fork
+> uses only `abi.encode(Delegation[])`.
 
 ### Computing the delegation hash
 
@@ -612,21 +667,22 @@ PERMISSION_CONTEXT=$(cast keccak $ENCODED)
 import { keccak256, encodeAbiParameters, parseAbiParameters } from 'viem'
 
 const encoded = encodeAbiParameters(
-  parseAbiParameters('(address delegator, address delegate, bytes32 authority, (address enforcer, bytes terms, bytes args)[] caveats, uint256 salt, bytes signature)'),
-  [{
-    delegator: delegation.delegator,
+  parseAbiParameters('(address delegate,address delegator,bytes32 authority,(address enforcer,bytes terms,bytes args)[] caveats,uint256 salt,bytes signature)[]'),
+  [[{
     delegate: delegation.delegate,
+    delegator: delegation.delegator,
     authority: delegation.authority,
     caveats: delegation.caveats,
     salt: delegation.salt,
     signature: delegation.signature,
-  }]
+  }]]
 )
 
-const permissionContext = keccak256(encoded)
+const permissionContext = encoded
 ```
 
-**Do not pass `encoded` directly to `_permissionContexts`.** Passing raw struct bytes causes `Panic(65)` (abi.decode failure) in the DelegationManager.
+**Do NOT wrap in a 2-element tuple with `delegationHash`.** The contract decodes
+each context as `(Delegation[])` only.
 
 ---
 
@@ -690,8 +746,7 @@ When running in autonomous mode, authority verification is a gate that runs
 1. Load autonomous policy from `reference/autonomous-policy.md`
 2. Verify delegation (signature, expiry, revocation, caveats) per
    `reference/delegation-authority.md`
-3. If Path 2 (separate Smart Account), simulate to confirm MultiVault approval
-   exists from the Main Account to the Smart Account
+3. If deposit track, simulate to confirm MultiVault approval exists from the Main Account to the Smart Wallet
 4. Verify receiver consistency: `receiver` in the inner transaction must match
    the expected Main Account address
 5. If all checks pass, emit the nested transaction object
@@ -769,12 +824,12 @@ TRUST value is carried in the **inner** transaction's `value` field.
 
 | Error | Cause | Fix |
 |-------|-------|-----|
-| `MultiVault_CannotApproveOrRevokeSelf` | Path 1 (EIP-7702) attempted to call `approve` with `receiver == sender` | Skip the `approve` step in Path 1. It is only needed for Path 2 (separate Smart Account). |
+| `MultiVault_CannotApproveOrRevokeSelf` | Deposit track: attempted `approve` with `receiver == sender` | Skip the `approve` step for the creation track. `approve` is only needed for the deposit/redemption track. |
 | `DelegationManager_InvalidSignature` | EIP-712 signature does not recover to delegator address | Verify the signing key matches the delegator. For contract delegators, ensure ERC-1271 `isValidSignature` returns `0x1626ba7e` (`ERC1271_MAGIC_VALUE`). |
 | `DelegationManager_DelegationDisabled` (or `disabledDelegations` returns `true`) | Delegation has been disabled/revoked on-chain | The delegator must create a new delegation. Revocation is permanent. |
 | `DelegationManager_CaveatViolation` | A caveat's `beforeHook` or `afterHook` reverted | Check caveat terms against the intended operation. Common causes: disallowed function selector, cumulative spend exceeded, call count exceeded. |
-| `MultiVault_Unauthorized` | Path 2: Smart Account lacks `approve` from Main Account for the requested operation | Main Account must call `approve(SmartAccount, approvalType)` on MultiVault before delegation redemption. |
-| `DelegationManager_AuthorityNotFound` | Redelegation uses a parent delegation hash that does not exist or is invalid | Verify the parent delegation was created and signed correctly. Compute the parent hash off-chain (e.g., via `@metamask/smart-accounts-kit`) and ensure the `authority` field matches it. |
+| `MultiVault_Unauthorized` | Deposit track: Smart Wallet lacks `approve` from Main Account | Main Account must call `approve(SmartWallet, 3)` on MultiVault before deposit delegation redemption. |
+| `DelegationManager_AuthorityNotFound` | Redelegation uses a parent delegation hash that does not exist or is invalid | Verify the parent delegation was created and signed correctly. Compute the parent hash off-chain and ensure the `authority` field matches it. |
 
 ---
 
@@ -792,9 +847,7 @@ The outer `redeemDelegations` call carries `value = 0`.
 
 04. **Receiver binding is non-negotiable.** For receiver-bearing operations, the receiver MUST be the Main Account. Any other value is a hard failure.
 
-05. **EIP-7702 bypasses approve.** In Path 1, the Main Account cannot and need
-not approve itself on MultiVault. The `approve` prerequisite exists only in
-Path 2.
+05. **Creation track bypasses approve.** In the creation authority track, the OWS cannot and need not approve itself on MultiVault. The `approve` prerequisite exists only for the deposit/redemption track (Smart Wallet architecture).
 
 06. **Cumulative vs periodic caps.** `NativeTokenTransferAmountEnforcer` caps
 total cumulative spend, not a rolling daily rate. Agents should implement
@@ -810,7 +863,7 @@ bytes32 to `disabledDelegations(bytes32)`. Do not use `isRevoked(bytes32)` or `i
 
 09. **`getDelegationHash(Delegation)` exists on-chain** (`0x66134607`). `getDomainHash()` also exists (`0x83ebb771`). Off-chain computation is preferred only to avoid an extra RPC round-trip. Always read the domain separator from `getDomainHash()` — do not reconstruct it from guessed `name`/`version` literals.
 
-10. **`permissionContext` is a 2-element tuple.** `_permissionContexts[i]` must be `abi.encode(Delegation[], bytes32 delegationHash)`. The `delegationHash` must equal the on-chain `getDelegationHash(delegation)` result. Do not pass only the hash or only the struct.
+10. **`permissionContext` is `abi.encode(Delegation[])` — a flat array of Delegation structs.** There is NO separate `bytes32 delegationHash` tuple element. Including one causes an `abi.decode` mismatch. This differs from standard MetaMask Delegation Framework which uses a 2-element tuple.
 
 11. **`execCallData` must use `solidityPacked(address,uint256,bytes)`.** The inner execution data for ERC-7579 single-call mode must be flat-packed. Using `abi.encode(tuple)` adds a 32-byte offset pointer that shifts all fields and causes `decodeSingle` to read garbage.
 

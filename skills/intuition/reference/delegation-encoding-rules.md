@@ -2,11 +2,14 @@
 
 Network-agnostic encoding rules verified on testnet and mainnet. These rules apply to all networks.
 
-## `_permissionContexts` is a 2-element tuple
-`abi.encode(Delegation[], bytes32 delegationHash)`. NOT just `Delegation[]` or just the hash alone.
+## `_permissionContexts` is `abi.encode(Delegation[])`
+Each element is a flat array of Delegation structs. There is NO separate `bytes32 delegationHash` tuple element. Including one causes an `abi.decode` mismatch. This differs from standard MetaMask Delegation Framework which uses a 2-element tuple.
 
-## `executionCallData` must be `solidityPacked`
-Use `ethers.solidityPacked(["address","uint256","bytes"], [target, value, innerCalldata])`. NOT `abi.encode((address,uint256,bytes))` — tuple adds offset pointer.
+## `executionCallData` must use `solidityPacked`
+Use `ethers.solidityPacked(["address","uint256","bytes"], [target, value, innerCalldata])`. NOT `ethers.AbiCoder.defaultAbiCoder().encode(...)` — ABI encoding adds offset headers and left-padding that shift the inner calldata to byte 0x80+, but the Intuition fork's `ExecutionLib.decodeSingle()` reads calldata from byte 0x34. Using ABI encoding causes `AllowedMethodsEnforcer` to read garbage from offset 0x34 and revert with `method-not-allowed` (0x08c379a0) at gas 76543.
+
+## Deposit inner value must be non-zero
+For `deposit` inner operations, the `value` field in `execCallData` must equal the actual deposit amount (e.g., `depositAmount`), NOT `0`. A zero value causes `MultiVault` to receive no `msg.value` and revert with empty data during `eth_estimateGas`.
 
 ## AllowedMethodsEnforcer terms
 Raw concatenated `bytes4` selectors: `"0x61403309"`. NOT ABI-encoded `bytes4[]` array.
@@ -85,8 +88,8 @@ Pass condition: `recovered.toLowerCase() === DELEGATOR.toLowerCase()`.
 ## Layer 5: Exact Encoding Rules
 These are the non-negotiable encodings that must be applied **in this order** when building `redeemDelegations` calldata:
 
-1. **`_permissionContexts[i]`** = `abi.encode(Delegation[], bytes32 delegationHash)` — Two-element tuple.
-2. **`execCallData`** = `ethers.solidityPacked(["address","uint256","bytes"], [MULTIVAULT, value, innerCalldata])` — Flat packed.
+1. **`_permissionContexts[i]`** = `abi.encode(Delegation[])` — flat array, NO hash tuple (differs from standard MetaMask framework).
+2. **`execCallData`** = `ethers.solidityPacked(["address","uint256","bytes"], [MULTIVAULT, value, innerCalldata])` — Flat packed. NOT `abi.encode` (places inner calldata at 0x80+, decodeSingle reads from 0x34).
 3. **`AllowedMethodsEnforcer` terms** = raw concatenated `bytes4` selectors: `"0x61403309"`.
 4. **`LimitedCallsEnforcer` terms** = `abi.encode(uint256)`, e.g., `abi.encode([5])`.
 5. **Caveat `args`** = `"0x"` (empty bytes).
@@ -103,19 +106,22 @@ Why it mattered: On mainnet, a value-bearing `eth_call` without a `from` address
 ## Layer 7: Systematic Debugging Order
 When `redeemDelegations` fails, rule out causes in this exact order:
 
-1. `_permissionContexts` missing the `delegationHash` tuple element
-2. `execCallData` uses `abi.encode(tuple)` instead of `solidityPacked`
-3. `AllowedMethodsEnforcer` terms are ABI-encoded `bytes4[]` instead of raw bytes4
-4. `LimitedCallsEnforcer` terms are raw bytes instead of `abi.encode(uint256)`
-5. Inner execution `value` ≠ `sum(assets[])`
-6. Delegator balance insufficient for inner value
+1. `_permissionContexts` — must be `abi.encode(Delegation[])` (NO hash tuple)
+2. `execCallData` uses `solidityPacked` (NOT `abi.encode`)
+3. `AllowedMethodsEnforcer` terms are raw bytes4 (NOT ABI-encoded `bytes4[]`)
+4. `LimitedCallsEnforcer` terms are `abi.encode(uint256)` (NOT raw bytes)
+5. Inner execution `value` = `sum(assets[])`
+6. Delegator balance sufficient for inner value
 7. Bare direct call from delegator also fails → bug is in inner operation
 8. `isTermCreated` for atom data returns `true` → atom already exists
 
-## Kill switch proof
-1. Write: `0x0191...` block 9365664
-2. Revoke: `0xbabc...` block 9365665
-3. Blocked: revert `0x05baa052`
+## Kill switch proof (2026-09-12)
+1. Create: `0xad44b8709bdc2cfe00ad3053ece3951341b750f044c4f11a74f5ec7cb7fbcfcf` block 9369906
+2. Deposit: `0xecce25f5a38a1210e44eefb15fef784793f560968a11db0b5abd48f312e0aea8` block 9369910
+3. Revoke: `0xc507ce129f082c8b0f6cdff6afed40773ee89d36f4f02e0549031928b6785ef1` block 9369912
+4. Post-revert: revert `0x05baa052` = `CannotUseADisabledDelegation()`
+
+See `DELEGATION-LIFECYCLE.md` for the full workflow with copy-paste code.
 
 ## Atom data
 CAIP-10: `caip10:eip155:1155:0x4140Fad2e771fE395a71dA3E2B63236B5f5694C4`
@@ -130,3 +136,8 @@ CAIP-10: caip10:eip155:1155:0x4140Fad2e771fE395a71dA3E2B63236B5f5694C4
 4. Re-add caveats one by-one
 5. Check isTermCreated()
 6. Use cast call simulation
+
+## See Also
+- `DELEGATION-LIFECYCLE.md` — full delegation lifecycle workflow with copy-paste code (start here for new setups)
+- `archive/reference/intuition-fork-differences.md` — comprehensive list of all Intuition fork differences (struct order, execCallData encoding, testnet limitations, slippage)
+- `references/allowed-methods-enforcer-debugging.md` — full bytecode analysis and live proof
