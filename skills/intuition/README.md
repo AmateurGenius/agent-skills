@@ -82,7 +82,7 @@ configureSdk({ pinApiKey })
 
 If the execution environment has no configured pinning capability, stop before
 making a request and return the `pin_failed` output from
-[references/schemas.md](./references/schemas.md) with a reason beginning
+[reference/schemas.md](./reference/schemas.md) with a reason beginning
 `pinning_configuration_required`.
 
 ## Quickstart A: Discovery -> Deposit
@@ -219,7 +219,7 @@ including deposit track, revocation, and post-revoke verification.
 - `SKILL.md`: canonical machine-facing contract, invariants, output shapes, and delegation routing.
 - `DELEGATION-LIFECYCLE.md`: single entry point for the full delegation lifecycle (15-min setup).
 - `operations/`: write-specific encoding flows for create, deposit, redeem, batch, approvals, and delegation.
-- `references/`: read queries, network config, GraphQL, pinning, config semantics, verification, nested-triple composition, delegation concepts, and autonomous policy.
+- `reference/`: read queries, network config, GraphQL, pinning, config semantics, verification, nested-triple composition, delegation concepts, and autonomous policy.
 
 ### Operations
 
@@ -239,28 +239,28 @@ including deposit track, revocation, and post-revoke verification.
 
 | File | Purpose |
 |------|---------|
-| `references/network-config.md` | Canonical network metadata, session env values, and viem chain defs |
-| `references/graphql-queries.md` | GraphQL discovery — search, traverse, aggregate |
-| `references/schemas.md` | Schema types, IPFS pinning, and structured atom creation |
-| `references/reading-state.md` | On-chain reads and session setup |
-| `references/workflows.md` | Multi-step recipes (create+deposit, signal agreement, exit) |
-| `references/simulation.md` | Dry run / simulate writes before executing |
-| `references/autonomous-policy.md` | Approval modes, policy schema, execution gates, delegation policy |
-| `references/delegation.md` | ERC-7710 concepts, two-track architecture, agent wallet setup, EIP-712 signing |
-| `references/delegation-authority.md` | Autonomous verification gate for delegated agents |
-| `references/off-chain-hashing.md` | Off-chain EIP-712 digest computation and delegation hashing |
-| `references/unified-delegation-architecture.md` | Two-track model: Creation Authority (OWS) + Deposit Authority (Smart Wallet) |
-| `references/delegation-encoding-rules.md` | Exact encoding rules verified on testnet |
-| `references/post-write-verification.md` | Receipt confirmation, deterministic ID reconstruction, state deltas |
+| `reference/network-config.md` | Canonical network metadata, session env values, and viem chain defs |
+| `reference/graphql-queries.md` | GraphQL discovery — search, traverse, aggregate |
+| `reference/schemas.md` | Schema types, IPFS pinning, and structured atom creation |
+| `reference/reading-state.md` | On-chain reads and session setup |
+| `reference/workflows.md` | Multi-step recipes (create+deposit, signal agreement, exit) |
+| `reference/simulation.md` | Dry run / simulate writes before executing |
+| `reference/autonomous-policy.md` | Approval modes, policy schema, execution gates, delegation policy |
+| `reference/delegation.md` | ERC-7710 concepts, two-track architecture, agent wallet setup, EIP-712 signing |
+| `reference/delegation-authority.md` | Autonomous verification gate for delegated agents |
+| `reference/off-chain-hashing.md` | Off-chain EIP-712 digest computation and delegation hashing |
+| `reference/unified-delegation-architecture.md` | Two-track model: Creation Authority (OWS) + Deposit Authority (Smart Wallet) |
+| `reference/delegation-encoding-rules.md` | Exact encoding rules verified on testnet |
+| `reference/post-write-verification.md` | Receipt confirmation, deterministic ID reconstruction, state deltas |
 
 The skill also supports creating nested triples: triples whose subject,
 predicate, or object reuses another triple's `term_id`. See
-[references/workflows.md](./references/workflows.md).
+[reference/workflows.md](./reference/workflows.md).
 
 ## Autonomous Mode
 
 For unattended execution, policy guardrails and runtime validation live in
-[references/autonomous-policy.md](./references/autonomous-policy.md).
+[reference/autonomous-policy.md](./reference/autonomous-policy.md).
 
 The policy includes delegation configuration:
 - `delegation.mode`: `direct` (no delegation), `creation_only`, `deposit_only`, or `both`.
@@ -268,7 +268,7 @@ The policy includes delegation configuration:
 - `delegation.dailyBudgetWei`: Agent-side self-enforced daily TRUST spend limit.
 
 When delegation mode is active, the agent runs the authority verification gate
-from [references/delegation-authority.md](./references/delegation-authority.md)
+from [reference/delegation-authority.md](./reference/delegation-authority.md)
 before every write. If the gate fails, the agent emits a `delegation_failure`
 object and halts.
 
@@ -284,9 +284,9 @@ object and halts.
 ## References
 
 - [DELEGATION-LIFECYCLE.md](./DELEGATION-LIFECYCLE.md) — Complete delegation lifecycle (start here)
-- [references/network-config.md](./references/network-config.md)
-- [references/delegation.md](./references/delegation.md)
-- [references/delegation-authority.md](./references/delegation-authority.md)
+- [reference/network-config.md](./reference/network-config.md)
+- [reference/delegation.md](./reference/delegation.md)
+- [reference/delegation-authority.md](./reference/delegation-authority.md)
 - [operations/create-delegation.md](./operations/create-delegation.md)
 - [operations/revoke-delegation.md](./operations/revoke-delegation.md)
 - [Intuition V2 Contracts](https://github.com/0xIntuition/intuition-v2/tree/main/contracts/core)
