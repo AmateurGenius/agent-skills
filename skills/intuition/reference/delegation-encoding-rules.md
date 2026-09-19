@@ -6,7 +6,7 @@ Network-agnostic encoding rules verified on testnet and mainnet. These rules app
 Each element is a flat array of Delegation structs. There is NO separate `bytes32 delegationHash` tuple element. Including one causes an `abi.decode` mismatch. This differs from standard MetaMask Delegation Framework which uses a 2-element tuple.
 
 ## `executionCallData` must use `solidityPacked`
-Use `ethers.solidityPacked(["address","uint256","bytes"], [target, value, innerCalldata])`. NOT `ethers.AbiCoder.defaultAbiCoder().encode(...)` — ABI encoding adds offset headers and left-padding that shift the inner calldata to byte 0x80+, but the Intuition fork's `ExecutionLib.decodeSingle()` reads calldata from byte 0x34. Using ABI encoding causes `AllowedMethodsEnforcer` to read garbage from offset 0x34 and revert with `method-not-allowed` (0x08c379a0) at gas 76543.
+Use `ethers.solidityPacked(["address","uint256","bytes"], [target, value, innerCalldata])`. NOT `ethers.AbiCoder.defaultAbiCoder().encode(...)` — ABI encoding adds offset headers and left-padding that shift the inner calldata to byte 0x80+, but the `ExecutionLib.decodeSingle()` reads calldata from byte 0x34. Using ABI encoding causes `AllowedMethodsEnforcer` to read garbage from offset 0x34 and revert with `method-not-allowed` (0x08c379a0) at gas 76543.
 
 ## Deposit inner value must be non-zero
 For `deposit` inner operations, the `value` field in `execCallData` must equal the actual deposit amount (e.g., `depositAmount`), NOT `0`. A zero value causes `MultiVault` to receive no `msg.value` and revert with empty data during `eth_estimateGas`.
@@ -139,5 +139,5 @@ CAIP-10: caip10:eip155:1155:0x4140Fad2e771fE395a71dA3E2B63236B5f5694C4
 
 ## See Also
 - `DELEGATION-LIFECYCLE.md` — full delegation lifecycle workflow with copy-paste code (start here for new setups)
-- `archive/reference/intuition-fork-differences.md` — comprehensive list of all Intuition fork differences (struct order, execCallData encoding, testnet limitations, slippage)
+- `archive/reference/intuition-delegation-notes.md` — historical debugging notes (see archive/)
 - `references/allowed-methods-enforcer-debugging.md` — full bytecode analysis and live proof

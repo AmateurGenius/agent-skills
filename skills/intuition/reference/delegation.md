@@ -1,8 +1,9 @@
 # Delegation
 
-Reference for ERC-7710 delegation concepts, Smart Account Kit integration,
-and agent wallet setup. Use this file when building, signing, or redeeming
-delegations on the Intuition Protocol.
+Reference for ERC-7710 delegation concepts, two-track delegation model
+(Creation Authority via OWS + Deposit Authority via Smart Wallet), and agent
+wallet setup. Use this file when building, signing, or redeeming delegations
+on the Intuition Protocol.
 
 **Prerequisites:** Load `reference/network-config.md` first for chain IDs,
 RPC endpoints, and contract addresses.
@@ -12,8 +13,8 @@ RPC endpoints, and contract addresses.
 ## Table of Contents
 
 - [Core Concepts](#core-concepts)
-- [Two Delegation Paths](#two-delegation-paths)
-- [Smart Account Kit Contract Addresses](#smart-account-kit-contract-addresses)
+- [Unified Delegation Architecture](#unified-delegation-architecture)
+- [Contract Addresses](#contract-addresses)
 - [Delegation Struct Anatomy](#delegation-struct-anatomy)
 - [Caveat Struct and Enforcer Validation](#caveat-struct-and-enforcer-validation)
 - [Reading Delegation State](#reading-delegation-state)
@@ -90,7 +91,8 @@ Used for `createAtoms` and `createTriples` — operations that have no `receiver
 - This is acceptable: creation attribution does not carry semantic weight
 
 **Characteristics:**
-- OWS is a temporary EIP-7702 upgraded wallet (session-only)
+- OWS is a temporary EIP-7702 upgraded wallet. The Agent generates
+  the OWS keypair and SAVES it as its own key (for the creation track).
 - Main Account key used once for setup, then shelved
 - Revocable: revoke OWS delegation after creation setup
 - No `approve` needed on MultiVault (creation doesn't check approvals)
@@ -116,19 +118,23 @@ Used for `deposit`, `redeem`, `depositBatch`, `redeemBatch` — operations with 
 - Revocable: revoke Smart Wallet delegation or remove `approve`
 - `receiver` override guarantees Main Account ownership
 
-### Key Separation (4 roles)
+### Key Separation (2 roles)
 
 | Role | Owner | Where it lives | May the skill persist it? |
 |------|-------|----------------|---------------------------|
 | **Main Account key** | User / Main Account | User's wallet only (MetaMask, hardware) | **NO** |
-| **OWS key** | Temporary (session-only) | Session memory, discarded after setup | Optional — only during setup window |
-| **Smart Wallet key** | Agent | Agent secure storage | **YES** |
-| **Agent key** | Agent | `~/.intuition/agent-wallet.json` (chmod 600) | **YES** |
+| **Agent key (= OWS key)** | Agent | `~/.intuition/agent-wallet.json` (chmod 600) | **YES** |
+
+> **Clarification:** The Agent has ONE key: the OWS key. The OWS is a
+> temporary wallet with its own keypair — the Agent generates it and uses
+> it as its primary key for broadcasting and for the creation track.
+> The Smart Wallet is a Main Account-derived contract (CREATE2 or EIP-7702).
+> It has NO private key at all. The Main Account is its contract owner.
 
 **Hard rules:**
 1. The agent/skill must **never** write the Main Account private key to disk, logs, chat, or any artifact.
 2. The Main Account private key is a session-only variable during setup. It is not persisted.
-3. Only the Agent's and Smart Wallet's private keys may be saved.
+3. Only the Agent's private key (the OWS key) may be saved (to `~/.intuition/agent-wallet.json`).
 
 ### When to use which track
 
@@ -160,13 +166,17 @@ Phase 3 — Management (optional):
 
 ---
 
-## Smart Account Kit Contract Addresses
+## Contract Addresses
 
-| Contract | Mainnet (1155) | Testnet (13579) | Notes |
-|----------|---------------|-----------------|-------|
-| **DelegationManager** | `0xdb9B1e94B5b69Df7e401DDbedE43491141047dB3` | `0xdb9B1e94B5b69Df7e401DDbedE43491141047dB3` | Deterministic CREATE2, fixed `"GATOR"` salt. Testnet verified via live `DisabledDelegation` log. Mainnet inferred from same CREATE2 guarantee. |
-| **EIP7702 DeleGator Impl** | `0x63c0c19a282a1B52b07dD5a65b58948A07DAE32B` | `0x63c0c19a282a1B52b07dD5a65b58948A07DAE32B` | Confirmed labeled on block explorers. Designator pattern: `0xef0100` + this address. |
-| **AllowedMethodsEnforcer** | `TBD` | `0x2c21fD0Cb9DC8445CB3fb0DC5E7Bb0Aca01842B5` | Testnet confirmed. Mainnet address pending verification. |
+All addresses are deterministic CREATE2 and identical on both chains.
+
+| Contract | Address (both chains) | Notes |
+|----------|----------------------|-------|
+| **DelegationManager** | `0xdb9B1e94B5b69Df7e401DDbedE43491141047dB3` | Deterministic CREATE2, fixed `"GATOR"` salt. |
+| **EIP7702 DeleGator Impl** | `0x63c0c19a282a1B52b07dD5a65b58948A07DAE32B` | Designator pattern: `0xef0100` + this address. |
+| **AllowedMethodsEnforcer** | `0x2c21fD0Cb9DC8445CB3fb0DC5E7Bb0Aca01842B5` | Restricts which function selectors the delegate can call. |
+| **LimitedCallsEnforcer** | `0x04658B29F6b82ed55274221a06Fc97D318E25416` | Caps total number of redemption calls. |
+| **NativeTokenTransferAmountEnforcer** | `0xA9BC5458E3eD352Df2eA4AbE9e0bBA41173513B9` | Caps cumulative TRUST spend across all redemptions. |
 
 **ERC-7579 execution mode:**
 - `MODE_SINGLE_DEFAULT` = `0x0000000000000000000000000000000000000000000000000000000000000000` (32 zero bytes)
@@ -186,8 +196,8 @@ const MODE_SINGLE_DEFAULT = '0x0000000000000000000000000000000000000000000000000
 
 ```solidity
 struct Delegation {
-  address delegator;      // The authority owner (Main Account or Smart Account)
-  address delegate;       // The Agent wallet address that will redeem
+  address delegate;       // The Agent wallet address that will redeem (FIRST — standard MetaMask order)
+  address delegator;      // The authority owner (Main Account or Smart Account) (SECOND)
   bytes32 authority;      // ROOT_AUTHORITY (0xffff...ffff) for fresh delegation;
                           // parent delegation hash for redelegation
   Caveat[] caveats;       // Restrictions enforced by the DelegationManager
@@ -195,6 +205,10 @@ struct Delegation {
   bytes signature;        // EIP-712 signature from delegator
 }
 ```
+
+> **CRITICAL:** Field order is `(delegate, delegator, ...)` — delegate FIRST.
+> This is the standard MetaMask Delegation Framework order from Types.sol.
+> Wrong order causes `InvalidDelegate()` (0xb5863604).
 
 ### ROOT_AUTHORITY vs Chained Authority
 
@@ -292,9 +306,9 @@ has been revoked:
 # Using cast
 DELEGATION_HASH=$(node -e "
 const { ethers } = require('ethers');
-const delegation = { delegator: '$DELEGATOR', delegate: '$DELEGATE', authority: '$AUTHORITY', caveats: [/*...*/], salt: '$SALT', signature: '$SIGNATURE' };
+const delegation = { delegate: '$DELEGATE', delegator: '$DELEGATOR', authority: '$AUTHORITY', caveats: [/*...*/], salt: '$SALT', signature: '$SIGNATURE' };
 const encoded = new ethers.AbiCoder().encode(
-  ['(address delegator, address delegate, bytes32 authority, (address enforcer, bytes terms, bytes args)[] caveats, uint256 salt, bytes signature)'],
+  ['(address delegate, address delegator, bytes32 authority, (address enforcer, bytes terms, bytes args)[] caveats, uint256 salt, bytes signature)'],
   [delegation]
 );
 console.log(ethers.keccak256(encoded));
@@ -309,7 +323,7 @@ import { keccak256, encodeAbiParameters, parseAbiParameters } from 'viem'
 
 // Compute the delegation hash off-chain
 const encoded = encodeAbiParameters(
-  parseAbiParameters('(address delegator, address delegate, bytes32 authority, (address enforcer, bytes terms, bytes args)[] caveats, uint256 salt, bytes signature)'),
+  parseAbiParameters('(address delegate, address delegator, bytes32 authority, (address enforcer, bytes terms, bytes args)[] caveats, uint256 salt, bytes signature)'),
   [delegation]
 )
 const delegationHash = keccak256(encoded)
@@ -628,9 +642,9 @@ The contract decodes each context with `abi.decode(_permissionContexts[batchInde
 There is NO separate `bytes32 delegationHash` tuple element. Including one causes
 an `abi.decode` mismatch.
 
-> **Note:** This differs from the standard MetaMask Delegation Framework which uses
-> a 2-element tuple `(Delegation[], bytes32 delegationHash)`. The Intuition fork
-> uses only `abi.encode(Delegation[])`.
+> **Note:** The permission context uses only `abi.encode(Delegation[])` — a flat array of structs.
+> This differs from some implementations that use a 2-element tuple `(Delegation[], bytes32 delegationHash)`.
+> Including the hash causes an `abi.decode` mismatch.
 
 ### Computing the delegation hash
 
@@ -719,9 +733,9 @@ cast send $DELEGATION_MANAGER $ENABLE_CALLDATA \
 # Compute delegation hash off-chain
 DELEGATION_HASH=$(node -e "
 const { ethers } = require('ethers');
-const delegation = { delegator: '$DELEGATOR', delegate: '$DELEGATE', authority: '$AUTHORITY', caveats: [/*...*/], salt: '$SALT', signature: '$SIGNATURE' };
+const delegation = { delegate: '$DELEGATE', delegator: '$DELEGATOR', authority: '$AUTHORITY', caveats: [/*...*/], salt: '$SALT', signature: '$SIGNATURE' };
 const encoded = new ethers.AbiCoder().encode(
-  ['(address delegator, address delegate, bytes32 authority, (address enforcer, bytes terms, bytes args)[] caveats, uint256 salt, bytes signature)'],
+  ['(address delegate, address delegator, bytes32 authority, (address enforcer, bytes terms, bytes args)[] caveats, uint256 salt, bytes signature)'],
   [delegation]
 );
 console.log(ethers.keccak256(encoded));
