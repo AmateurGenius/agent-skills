@@ -8,7 +8,7 @@ tags: [intuition, defi, delegation, eip712]
 metadata:
   author: jonathanprozzi
   version: 0.5.4
-  
+  hermes:
     tags: [intuition, defi, delegation, eip712]
     related_skills: []
 ---
