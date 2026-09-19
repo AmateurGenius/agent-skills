@@ -87,10 +87,6 @@ For creating atoms, triples, depositing, or redeeming — requires a funded wall
 - An agent needs to verify its delegated authority before executing a write.
 - A sub-agent needs to receive narrowed authority from another agent (redelegation).
 
-> **Proof of lifecycle:** See `references/delegation-lifecycle-proof.md` for the complete testnet transaction record (create → deposit → revoke → post-revoke blocked) with TX hashes, delegation parameters, and verification commands.
-
-> **E2E test results:** See `references/e2e-test-results.md` for the latest test run results, known issues (address checksums, encoding patterns, private key masking), and debugging recommendations.
-
 **UX principles for Path C:**
 - User experience trumps all. Do not let the user or agent get lost in delegation choices or setup steps.
 - Every delegation-related step must have a straightforward setup path. If a step adds complexity, it must also provide a simpler alternative or explicit fallback.
@@ -120,29 +116,15 @@ For creating atoms, triples, depositing, or redeeming — requires a funded wall
 > The Smart Wallet is a Main Account-derived contract (CREATE2 or EIP-7702).
 > It has NO private key at all. The Main Account is its contract owner.
 
-**MetaMask browser signing:**
-- MetaMask removed `eth_sign`. For EIP-712 signing in-browser, use `wallet_signTypedData_v4`. `signMessage` / `personal_sign` adds an Ethereum prefix and breaks ERC-1271 validation.
-- The signing page at `templates/sign-delegation.html` implements this pattern: load prepared JSON, compute digest from on-chain `getDomainHash()`, then call `wallet_signTypedData_v4`.
-- **Pitfall:** The `chainId` in the typed-data domain must match the active MetaMask network exactly. Testnet = 13579, mainnet = 1155. A mismatch causes MetaMask to reject the signature request before signing.
-- **Pitfall:** When the delegator is an EIP-7702 upgraded account (`0xef0100...`), MetaMask blocks `eth_signTypedData_v4` with `External signature requests cannot sign delegations for internal accounts.` `wallet_signTypedData_v4` (via the signing page at `templates/sign-delegation.html`) works for non-EIP-7702 accounts but also fails for EIP-7702 delegators. **Local private key signing is the only method that works for all account types** — see `ux-patterns.md` → "Private Key Request Pattern" for the full explanation.
-- **Option B / prepare→sign→redeem:** Split the flow into three scripts to avoid MetaMask browser signing entirely: (1) `prepare-*.mjs` generates the delegation JSON and computes hashes using on-chain `getDomainHash()`/`getDelegationHash()` — no private key needed; (2) `sign-*.mjs` runs locally with the relevant private key env var to produce the signed delegation JSON; (3) `redeem-*.mjs` runs on the agent to broadcast `redeemDelegations`. The signed JSON can be prepared ahead of time and loaded into a signing page, so the user only needs to paste the key once locally.
+**Delegation signing: local private key ONLY**
+
+> **Browser-based signing (MetaMask) does NOT work for delegation signatures.** MetaMask blocks `eth_signTypedData_v4` for EIP-7702 upgraded accounts, and `wallet_signTypedData_v4` (via the signing page) also fails for EIP-7702 delegators. **Local private key signing is the only method that works for all account types** — EOA, EIP-7702, mainnet, testnet. See `reference/ux-patterns.md` → "Private Key Request Pattern" for the full explanation.
 
 **UX pattern: check-before-ask for delegation signing** — see
-[`ux-patterns.md`](ux-patterns.md) (Pre-Task Context Check + Private Key Request).
+[`ux-patterns.md`](reference/ux-patterns.md) (Pre-Task Context Check + Private Key Request).
 Before presenting any signing menu, check if a valid unexpired delegation
 already exists. If yes, skip straight to broadcast. If no, run the one-time
 delegation signing flow, persisting state in durable files alongside the skill.
-
-**UX pattern: prepare signing page ahead of time** — see
-[`ux-patterns.md`](ux-patterns.md) (Output Before Action). For the
-prepare→sign→redeem flow, pre-generate the delegation JSON and load it into
-the signing page before asking the user to sign. Show the user a summary of
-what will happen (operations, costs, scope) before emitting any signing
-requests. See `reference/signing-page-prepare-pattern.md` for the full flow.
-
-**Signing page requirements**
-
-The signing page must use `wallet_signTypedData_v4` (NOT `signMessage` / `personal_sign` / `eth_sign`), because those add an Ethereum prefix and break ERC-1271 validation. When the delegator is an EIP-7702 upgraded account, MetaMask blocks `eth_signTypedData_v4` for that account — connect the **owner EOA** (implementation address) instead. See `templates/sign-delegation.html` for the working implementation with auto-load and digest computation.
 
 **Quick Reference: Delegated Operations**
 
@@ -152,14 +134,14 @@ The signing page must use `wallet_signTypedData_v4` (NOT `signMessage` / `person
 | Needs `approve` on MultiVault? | Yes, for deposit track — Main Account must `approve(SmartWallet, 3)` on MultiVault. Not needed for creation track. |
 | `msg.sender` at MultiVault | Creation: OWS (no `receiver` param, attribution is intentional). Deposit: Smart Wallet (`receiver = Main Account` routes shares correctly). |
 | Agent can self-sign delegation? | No — the Main Account (as Smart Wallet owner) signs the delegation to the Agent. The Agent only signs its own transactions. |
-| MetaMask browser compatible for setup? | Yes — for `approve`, Smart Wallet deployment, and signing page. No browser signing needed for Agent operations after setup. |
+| MetaMask browser compatible for setup? | No — browser signing does not work for delegations. Local private key signing is required. |
 | Requires raw private key? | Main Account key for one-time setup only. Agent key = OWS key (generated, saved as Agent's key). Smart Wallet has no key. |
 | Creation needs delegation chain? | **No.** OWS creates directly on its own authority. Creation attribution carries no semantic weight — `createAtoms`/`createTriples` have no `receiver` by design. |
 
 **Preconditions for deposit/redemption track:**
 ```
-1. Main Account → MultiVault: approve(SmartWallet, 3) (signed in MetaMask)
-2. Smart Wallet → Agent: signed EIP-712 delegation (Main Account signs as Smart Wallet owner)
+1. Main Account → MultiVault: approve(SmartWallet, 3) (signed by Main Account)
+2. Smart Wallet → Agent: signed EIP-712 delegation (Main Account signs as Smart Wallet owner, local private key)
 3. Agent holds its own key for broadcasting (Smart Wallet has no key — it's a contract)
 ```
 
@@ -350,26 +332,39 @@ Use base-10 strings for top-level numeric transaction fields (`value`, `chainId`
 Read these files when performing the corresponding operation:
 
 ```
-ux-patterns.md                       Mandatory UX patterns: pre-task checks, key request, workflow flagging
-reference/DELEGATION-LIFECYCLE.md   Quick start: full delegation lifecycle in 15 min
-references/delegation-lifecycle-proof.md  Testnet proof: TX hashes, params, verification commands
-references/skill-maintenance.md              Documentation hygiene, review-fix workflow, bloat diagnosis
-reference/unified-delegation-architecture.md  Unified two-track delegation model: Creation Authority (OWS) + Deposit Authority (Smart Wallet)
-reference/architecture-confirmed.md            Core team confirmation: creation attribution carries no semantic weight
-reference/deposit-authority-track.md        Deposit/Redemption Authority: Smart Wallet setup, approve, delegation, execution
-reference/creation-authority-track.md       Creation Authority: OWS setup, one-time delegation, revocation
-reference/delegation-authority.md            Agent-side authority verification gate (run before every delegated write)
-reference/delegation-encoding-rules.md       Exact encoding rules, kill switch proof, verified addresses
-reference/delegation.md                      Core delegation concepts, EIP-7702 vs. Smart Wallet architectures
-reference/off-chain-hashing.md               EIP-712 digest computation for delegation signing
-archive/reference/allowed-methods-enforcer-debugging.md  Historical: execCallData must use solidityPacked (selector at byte 0x34). Superseded by reference/DELEGATION-LIFECYCLE.md.
-archive/reference/delegation-field-order-debug.md        Historical: struct field order discovery notes
+reference/                        (Path A: read-only — load these directly)
+  network-config.md               Canonical network metadata, session env values, viem chain defs
+  graphql-queries.md              GraphQL discovery — search, traverse, aggregate, graph landscape
+  nested-triples.md                Nested triple composition and term-aware rendering
+  reading-state.md                On-chain reads and session setup (Path B prerequisite)
+  config-fields.md                Protocol config semantics — which fields constrain txs, which are informational
+  schemas.md                      Schema types, IPFS pinning, and structured atom creation
+  workflows.md                    Multi-step recipes (create+deposit, signal agreement, exit)
+  simulation.md                   Dry run / simulate writes before executing
+  autonomous-policy.md            Approval modes, policy schema, execution gates
+  runtime-enforcement.md          Blocking validator flow before signing
+  post-write-verification.md      Receipt confirmation, deterministic ID reconstruction, state deltas
+
+reference/                        (Path C: delegation — load these for delegated operations)
+  DELEGATION-LIFECYCLE.md         Quick start: full delegation lifecycle in 15 min (start here for new delegation setups)
+  delegation.md                   Core delegation concepts, EIP-7702 vs. Smart Wallet architectures
+  delegation-authority.md         Agent-side authority verification gate (run before every delegated write)
+  delegation-encoding-rules.md    Exact encoding rules for calldata, execCallData, permission contexts
+  delegation-debugging.md         Layered debugging order and diagnostic commands
+  unified-delegation-architecture.md  Two-track model: Creation Authority (OWS) + Deposit Authority (Smart Wallet)
+  off-chain-hashing.md            EIP-712 digest computation for delegation signing
+  deposit-authority-track.md      Deposit/Redemption Authority: Smart Wallet setup, approve, delegation, execution
+  creation-authority-track.md     Creation Authority: OWS setup, acts directly (no delegation chain)
+
+reference/                        (UX patterns — mandatory for all operations)
+  ux-patterns.md                  Pre-task checks, private key request, workflow flagging, common roadblocks
+
 operations/                       (Path B: writes — run session setup first)
   create-atoms.md                 Create atom vaults from URI data
-  deposit-atom.md                  Deposit $TRUST into an existing atom vault, mint shares
   create-triples.md               Create triple vaults linking three terms
-  deposit-triple.md               Deposit $TRUST into an existing triple vault, mint shares (signals agreement)
   deposit.md                      Deposit $TRUST into a vault, mint shares (generic reference)
+  deposit-atom.md                  Deposit $TRUST into an existing atom vault, mint shares
+  deposit-triple.md               Deposit $TRUST into an existing triple vault, mint shares (signals agreement)
   redeem.md                       Redeem shares from a vault, receive $TRUST
   batch-deposit.md                Deposit into multiple vaults in one transaction
   batch-redeem.md                 Redeem from multiple vaults in one transaction
@@ -734,7 +729,7 @@ These are non-negotiable for `redeemDelegations` to pass on-chain validation.
 - **`_permissionContexts[i]` is `abi.encode(Delegation[])`**: The contract decodes each permission context with `abi.decode(_permissionContexts[batchIndex_], (Delegation[]))`. There is NO separate `bytes32 delegationHash` tuple element. Including one causes an `abi.decode` mismatch. Always build the outer calldata as `abi.encode(Delegation[])` only — no trailing hash. **Note:** delegation-authority.md Step 9a describes reading a hash from `getDelegationHash()` on-chain — this hash is used for tracking/revocation checks, NOT for `_permissionContexts`. The permission context itself is always the flat `abi.encode(Delegation[])`. The testnet-proven code in DELEGATION-LIFECYCLE.md (execute-create.cjs) confirms the flat form works.
 `ExecutionLib.decodeSingle()` extracts the inner calldata from byte offset 0x34 of `execCallData`, then the `AllowedMethodsEnforcer` reads the selector from bytes[0:4] of that extracted calldata. Therefore, `execCallData` MUST use `solidityPacked(['address','uint256','bytes'], [target, value, innerCalldata])`. This places the inner calldata at byte offset 0x34 where `decodeSingle` reads it.
 - **Validate execCallData before redemption**: When a signed delegation JSON is provided, check that each `execCallData` starts with `0x`, has even-length hex, contains only hex chars, and is at least 88 bytes (20 address + 32 value + 36 minimum inner calldata). The execCallData should be `solidityPacked` encoded, starting with the 20-byte address followed by the 32-byte value. See the "ExecutionLib.decodeSingle()" note above for the byte-offset rationale.
-- **`AllowedMethodsEnforcer` terms**: raw concatenated `bytes4` selectors (e.g., `"0x61403309"`), NOT an ABI-encoded `bytes4[]` array. `decodeSingle()` reads 4-byte chunks directly from `_terms`. **Note (2026-09):** Even with correct terms, `method-not-allowed` fires if `execCallData` is ABI-encoded (inner calldata at byte 0x80+). The fix is `solidityPacked` encoding. See `archive/reference/allowed-methods-enforcer-debugging.md`.
+- **`AllowedMethodsEnforcer` terms**: raw concatenated `bytes4` selectors (e.g., `"0x61403309"`), NOT an ABI-encoded `bytes4[]` array. `decodeSingle()` reads 4-byte chunks directly from `_terms`. **Note (2026-09):** Even with correct terms, `method-not-allowed` fires if `execCallData` is ABI-encoded (inner calldata at byte 0x80+). The fix is `solidityPacked` encoding. See `reference/delegation-encoding-rules.md`.
 - **`LimitedCallsEnforcer` terms**: `abi.encode(uint256)` (e.g., `abi.encode([5])`), NOT raw bytes.
 - **Caveat encoding in ethers v6**: When encoding caveats with `Interface.encodeFunctionData` or `AbiCoder`, pass explicit `[enforcer, terms, args]` arrays. Passing `{enforcer, terms, args}` objects triggers "cannot encode object for signature with missing names". Always map objects to arrays before encoding.
 - **`authority` must equal on-chain `ROOT_AUTHORITY`** for the leaf delegation. From `cast call DelegationManager ROOT_AUTHORITY()`: `0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff`. Never use `0x0`.
