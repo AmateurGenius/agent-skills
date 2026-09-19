@@ -218,13 +218,13 @@ every write. If the gate passes, the agent wraps the Intuition calldata in
 See `reference/delegation-authority.md` for the full autonomous verification
 flow and `operations/create-delegation.md` for the complete delegator workflow.
 For the full tested lifecycle (create → deposit → revoke in under 15 min),
-see `DELEGATION-LIFECYCLE.md`.
+see `reference/DELEGATION-LIFECYCLE.md`.
 
 ## What the Skill Installs
 
 - `SKILL.md`: canonical machine-facing contract, invariants, output shapes, and delegation routing.
 - `ux-patterns.md`: mandatory UX patterns — pre-task context check, private key request (with MetaMask limitation), multi-step workflow flagging, network selection, output-before-action.
-- `DELEGATION-LIFECYCLE.md`: quick start — full delegation lifecycle (create -> deposit -> revoke) in under 15 min. Every code block tested on testnet.
+- `reference/DELEGATION-LIFECYCLE.md`: quick start — full delegation lifecycle (create -> deposit -> revoke) in under 15 min. Every code block tested on testnet.
 - `operations/`: write-specific encoding flows for create, deposit, redeem, batch, approvals, and delegation.
 - `reference/`: read queries, network config, GraphQL, pinning, config semantics, verification, nested-triple composition, delegation concepts, and autonomous policy.
 - `templates/`: signing page (MetaMask HTML), CLI signer, redeem/revoke scripts for both tracks.
@@ -236,7 +236,9 @@ see `DELEGATION-LIFECYCLE.md`.
 |------|---------|
 | `operations/create-atoms.md` | Create atom vaults from URI data |
 | `operations/create-triples.md` | Create triple vaults linking three terms |
-| `operations/deposit.md` | Deposit $TRUST into a vault, mint shares |
+| `operations/deposit-atom.md` | Deposit $TRUST into an existing atom vault, mint shares |
+| `operations/deposit-triple.md` | Deposit $TRUST into an existing triple vault, mint shares (signals agreement) |
+| `operations/deposit.md` | Deposit $TRUST into a vault, mint shares (generic reference) |
 | `operations/redeem.md` | Redeem shares from a vault, receive $TRUST |
 | `operations/batch-deposit.md` | Deposit into multiple vaults in one transaction |
 | `operations/batch-redeem.md` | Redeem from multiple vaults in one transaction |
@@ -249,17 +251,22 @@ see `DELEGATION-LIFECYCLE.md`.
 | File | Purpose |
 |------|---------|
 | `reference/network-config.md` | Canonical network metadata, session env values, and viem chain defs |
+| `reference/DELEGATION-LIFECYCLE.md` | Quick start — full delegation lifecycle in 15 min (tested on testnet) |
+| `reference/delegation.md` | Two-track delegation model (Creation Authority via OWS + Deposit Authority via Smart Wallet), agent wallet setup |
+| `reference/delegation-authority.md` | Autonomous verification gate for delegated agents — signature, revocation, expiry, caveat compliance, MultiVault approval simulation, receiver binding |
+| `reference/delegation-encoding-rules.md` | Exact encoding rules for calldata, execCallData, permission contexts |
+| `reference/delegation-debugging.md` | Layered debugging order and diagnostic commands |
+| `reference/unified-delegation-architecture.md` | Two-track model: Creation Authority (OWS) + Deposit Authority (Smart Wallet) |
+| `reference/off-chain-hashing.md` | EIP-712 digest computation for delegation signing |
 | `reference/graphql-queries.md` | GraphQL discovery — search, traverse, aggregate |
 | `reference/schemas.md` | Schema types, IPFS pinning, and structured atom creation |
 | `reference/reading-state.md` | On-chain reads and session setup |
 | `reference/workflows.md` | Multi-step recipes (create+deposit, signal agreement, exit) |
 | `reference/simulation.md` | Dry run / simulate writes before executing |
 | `reference/autonomous-policy.md` | Approval modes, policy schema, execution gates, delegation policy |
-|| `reference/delegation.md` | Two-track delegation model (Creation Authority via OWS + Deposit Authority via Smart Wallet), agent wallet setup, encoding rules. |
-| `reference/delegation-authority.md` | Autonomous verification gate for delegated agents — signature, revocation, expiry, caveat compliance, MultiVault approval simulation, receiver binding |
 | `reference/post-write-verification.md` | Receipt confirmation, deterministic ID reconstruction, state deltas |
 
-The skill also supports creating nested triples: triples whose subject,
+The skill also supports creating nested triples:
 predicate, or object reuses another triple's `term_id`. See
 `reference/nested-triples.md`.
 
@@ -289,7 +296,7 @@ the agent emits a `delegation_failure` object and halts.
 ## References
 
 - [ux-patterns.md](./ux-patterns.md) — mandatory UX patterns for all operations
-- [DELEGATION-LIFECYCLE.md](./DELEGATION-LIFECYCLE.md) — quick start: full lifecycle in 15 min
+- [reference/DELEGATION-LIFECYCLE.md](./reference/DELEGATION-LIFECYCLE.md) — quick start: full lifecycle in 15 min
 - [reference/network-config.md](./reference/network-config.md)
 - [reference/schemas.md](./reference/schemas.md)
 - [reference/post-write-verification.md](./reference/post-write-verification.md)
