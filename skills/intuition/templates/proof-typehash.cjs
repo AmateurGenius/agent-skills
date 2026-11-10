@@ -8,10 +8,14 @@ const ethers = require('ethers');
 const core = require('@metamask/delegation-core');
 const fs = require('fs');
 const path = require('path');
+const { DELEGATION_MANAGER, resolveNetwork } = require('./networks.cjs');
 
-const RPC  = 'https://testnet.rpc.intuition.systems/http';
-const DM   = '0xdb9B1e94B5b69Df7e401DDbedE43491141047dB3';
-const HYBRID = '0x433d9b2a6993f0cf36d9cce96d5cfe269d69ec14';
+// The keeper gate calls this with no arguments, so the default must stay testnet.
+const __args = process.argv.slice(2);
+const __chain = __args.indexOf('--chain') >= 0 ? __args[__args.indexOf('--chain') + 1] : 'testnet';
+const NET = resolveNetwork(__chain);
+const RPC  = NET.rpc;
+const DM   = DELEGATION_MANAGER;
 
 function eq(a,b){return (a||'').toLowerCase()===(b||'').toLowerCase();}
 
@@ -24,6 +28,7 @@ console.log('    matches 2-field (enforcer,terms)?     ', eq(cand2, core.CAVEAT_
 
 const delegation = JSON.parse(fs.readFileSync(path.join(__dirname,'signed-delegation-final.json'),'utf8'));
 const d = delegation; // file is the flat delegation object (delegate, delegator, authority, caveats, salt, signature)
+const HYBRID = d.delegator;   // the delegator IS the Hybrid; never hardcode it
 const provider = new ethers.JsonRpcProvider(RPC);
 const dm = new ethers.Contract(DM, [
   'function getDelegationHash((address delegate,address delegator,bytes32 authority,(address enforcer,bytes terms,bytes args)[] caveats,uint256 salt,bytes signature) _input) view returns (bytes32)',
@@ -35,7 +40,7 @@ const caveats = d.caveats.map(c => [c.enforcer, c.terms, c.args || '0x']);
   const structHash = await dm.getDelegationHash([d.delegate, d.delegator, d.authority, caveats, d.salt, d.signature]);
   const domainHash = await dm.getDomainHash();
   const digest = ethers.keccak256(ethers.concat(['0x1901', domainHash, structHash]));
-  console.log('\n=== ON-CHAIN DelegationManager @ testnet ===');
+  console.log(`\n=== ON-CHAIN DelegationManager @ ${NET.name} (${NET.chainId}) ===`);
   console.log('  getDelegationHash =', structHash);
   console.log('  getDomainHash     =', domainHash);
   console.log('  digest(0x1901)    =', digest);

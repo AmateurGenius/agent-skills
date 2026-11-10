@@ -75,21 +75,28 @@ cd ~/.hermes/skills/intuition
 node scripts/compute-delegation-hash.mjs templates/signed-delegation-final.json
 ```
 
-Real output (verified 2026-10-02):
+Real output (re-run 2026-11-09; the fixture was revoked on 2026-10-02, so
+`disabled` is now `true` — the digest and signature are unchanged and still valid):
 
 ```json
 {
+  "file": "templates/signed-delegation-final.json",
+  "chainId": 13579,
+  "delegate": "0xe9bfdec6fa795a24e3069292248d9d16570e050d",
+  "delegator": "0x433d9b2a6993f0cf36d9cce96d5cfe269d69ec14",
   "delegatorHasCode": true,
   "structHash": "0x3fc5a2a19c85eb6f43f4736705a5d86aecd5ed2a045741ff9ddd8ef475c1399e",
   "domainHash": "0x0b7c642afd2411ce211542a0e154e558e357f3b7f4738eb327ae086bfc659f15",
-  "digest":     "0x6308ca70982aa20733b038ddbd0f86c607ec4bae870412c0c157cfb5df26a60a",
-  "disabled":   false,
-  "erc1271":    "0x1626ba7e",
-  "valid":      true
+  "digest": "0x6308ca70982aa20733b038ddbd0f86c607ec4bae870412c0c157cfb5df26a60a",
+  "delegationHash": "0x3fc5a2a19c85eb6f43f4736705a5d86aecd5ed2a045741ff9ddd8ef475c1399e",
+  "disabled": true,
+  "erc1271": "0x1626ba7e",
+  "valid": true
 }
 ```
 
-`valid: true` is step 2. `disabled` is step 4. Equivalent raw calls if you
+`valid: true` is step 2. `disabled` is step 4 — and here it is `true`, which is
+why the redemption in step 6 below returns `halt`. Equivalent raw calls if you
 prefer:
 
 ```bash
@@ -214,26 +221,60 @@ stdout (human text goes to stderr) with a stable shape:
   "mode": "dry-run",
   "op": "deposit",
   "chainId": 13579,
-  "agent": "0xe9Bf…", "delegator": "0x433d…", "delegate": "0xe9Bf…",
-  "calldataBytes": 1892,
-  "valueTuthwei": "1000000000000000",
-  "valueTrusted": "0.001",
-  "decision": "proceed",
-  "reason": "Simulation passed. Nothing broadcast (dry-run default). Re-run with --broadcast --yes to send.",
-  "simulation": { "ok": true, "error": null, "errorName": null, "raw": "cef6d20900" },
+  "chain": "testnet",
+  "agent": "0xe9BfdEC6Fa795a24e3069292248d9d16570E050d",
+  "main": "0x61A20dE84D7E5C422Af323D47497ED3bf43Fa5ee",
+  "delegator": "0x433d9b2a6993f0cf36d9cce96d5cfe269d69ec14",
+  "delegate": "0xe9bfdec6fa795a24e3069292248d9d16570e050d",
+  "calldataBytes": 0,
+  "valueTrustWei": "0",
+  "valueTrusted": "0",
+  "costs": { "atomCost": "1000000001000000", "tripleCost": "1000000002000000", "curveId": "1" },
+  "preview": null,
+  "decision": "reject",
+  "reason": "CannotUseADisabledDelegation: this delegation was revoked. Request a fresh delegation from the delegator (see operations/revoke-delegation.md).",
+  "simulation": { "ok": null, "error": null, "errorName": null },
   "signatureCheck": { "magic": "0x1626ba7e", "valid": true, "digest": "0x6308ca70…", "structHash": "0x3fc5a2a1…" },
+  "revocation": { "disabled": true, "delegationHash": "0x3fc5a2a1…" },
   "tx": null,
   "createdIds": []
 }
 ```
 
-(copied verbatim from a real dry-run; the ellipses above stand in for the long
-digests)
+(copied verbatim from a real dry-run of the shipped fixture, 2026-11-09; the
+ellipses stand in for the long digests)
+
+Read the verdict carefully — this example is a **`reject`, not a `proceed`**:
+
+- `signatureCheck.valid` is `true` and `magic` is `0x1626ba7e`. The signature is
+  still good. A green signature check is **not** the verdict.
+- `revocation.disabled` is `true`, so the script stops before building calldata
+  (`calldataBytes: 0`) and names the cause:
+  `CannotUseADisabledDelegation`. The fixture delegation was revoked on
+  2026-10-02 (see `operations/revoke-delegation.md`).
+- `costs` is read from MultiVault on the selected chain at run time — note it is
+  chain-specific, so a hardcoded value would silently be wrong on the other network.
+- A `proceed` requires `revocation.disabled: false` **and** a clean simulation.
+  This ordering is deliberate: the contract's own revocation state is checked
+  before any calldata is built, so a dead delegation never reaches the simulator.
+
+The same script performs the creation operations — this is the delegated path for
+`createAtoms` and `createTriples`:
+
+```bash
+node templates/redeem-delegation.cjs signed.json --op create-atom --atom-data ipfs://bafy…
+node templates/redeem-delegation.cjs signed.json --op create-triple \
+  --subject 0x.. --predicate 0x.. --object 0x..
+```
+
+`--atom-data` must be a pinned `ipfs://` URI (or a `caip10:` address); plain strings
+are refused because they create legacy duplicate atoms. Add `--chain mainnet` to
+target chain 1155.
 
 Broadcasting requires **two** flags:
 
 ```bash
-node templates/redeem-delegation.cjs signed.json --op deposit --term 0x<TID> --amount 0.001 --broadcast --yes
+node templates/redeem-delegation.cjs signed.json --op deposit --term 0x<termId> --amount 0.001 --broadcast --yes
 ```
 
 `--broadcast` without `--yes` exits `2` without sending. On success `tx.hash` is

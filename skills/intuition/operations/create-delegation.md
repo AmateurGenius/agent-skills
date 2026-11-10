@@ -16,7 +16,27 @@ value is 2^255-1, not 2^256-1; (2) `pub`/`wc` were used but never constructed;
 
 **Prerequisites:** the Hybrid smart account must already be deployed, approved on
 MultiVault, and funded with tTRUST. The signing page does all three
-(steps 2a/2b/2c). Agent wallet: `reference/delegation.md` §8.
+(steps 2a/2b/2c).
+
+**Prerequisite: the agent wallet (the delegate address).** The delegator targets
+the agent's own address, so it must exist before you build the delegation. Provision
+it once with `templates/provision-agent-wallet.cjs` — OWS (`ows`) where it is
+available, otherwise the local key file that `templates/redeem-delegation.cjs` reads:
+
+```bash
+mkdir -p ~/.intuition && chmod 700 ~/.intuition
+node -e '
+  const {ethers}=require("ethers"); const fs=require("fs");
+  const w=ethers.Wallet.createRandom();
+  fs.writeFileSync(process.env.HOME+"/.intuition/agent-wallet.json",
+    JSON.stringify({address:w.address,privateKey:w.privateKey},null,2),{mode:0o600});
+  console.log("agent delegate address:", w.address);
+'
+# → paste that address into the DELEGATE field of the signing page
+```
+
+Full wallet detail, the OWS commands, and how the agent signs a redemption with
+each path: `reference/delegation.md` §8.
 
 ---
 
@@ -160,11 +180,23 @@ const delegation = createDelegation({
 >
 > **Reproduce it, read-only:**
 > ```
-> $ node templates/probe-value-lte-footgun.mjs
-> A) ValueLte = max (2^255-1), deposit 0.001  -> NO REVERT
-> B) ValueLte = 0n,                deposit 0.001 -> execution reverted
-> RESULT: FOOTGUN CONFIRMED
+> $ node templates/probe-value-lte-footgun.mjs --term 0x<termId>
+> chain Intuition Testnet (13579) | Hybrid 0x… | agent 0x… | main 0x…
+> fixture ValueLte terms: 0x7fff…ff
+>
+> A) ValueLte = max  (2^255-1), deposit 0.001 -> NO REVERT
+> B) ValueLte = 0n                 , deposit 0.001 -> ValueLteEnforcer:value-too-high
+> RESULT: FOOTGUN CONFIRMED — identical delegation, identical call,
+>         only ValueLte differs. valueLte=0n reverts value-bearing calls.
 > ```
+>
+> `--term` is required (the probe deposits into a real vault; a hardcoded term would be
+> wrong on the other network) and `--chain mainnet` targets chain 1155.
+>
+> **The probe needs a live delegation.** The shipped fixture was revoked on 2026-10-02, so
+> against it the probe reports `INCONCLUSIVE — control A did not pass` (both variants
+> revert with `CannotUseADisabledDelegation`). Run it against a fresh delegation to see
+> `FOOTGUN CONFIRMED`.
 
 > ### ⚠️ FOOTGUN 2 — selectors must be computed, never assumed
 >
@@ -230,7 +262,7 @@ as `0xffffffff`, with no other symptom).
 | `CHAIN_ID` | `13579` | `1155` |
 | RPC | `https://testnet.rpc.intuition.systems/http` | `https://rpc.intuition.systems/http` |
 | MultiVault | `0x2Ece8D4dEdcB9918A398528f3fa4688b1d2CAB91` | `0x6E35cF57A41fA15eA0EaE9C33e751b01A784Fe7e` |
-| SimpleFactory | `0x54c68ad35b082546a1e2e3e1a7542Ce9d3A2e756` | not deployed — deploy your own |
+| SimpleFactory | `0x69Aa2f9fe1572F1B640E1bbc512f5c3a734fc77c` | `0x54c68ad35b082546a1e2e3e1a7542Ce9d3A2e756` |
 
 DelegationManager is `0xdb9B1e94B5b69Df7e401DDbedE43491141047dB3` on **both**.
 Confirm the domain hash for a chain before trusting a signature:
@@ -420,7 +452,7 @@ Distinguishing "caveats wrong" from "signature wrong" mechanically:
 
 ## Related
 
-- `reference/delegation.md` — the model: roles, tracks, the 2-field/3-field split, addresses
+- `reference/delegation.md` — the model: three roles, one chain, the 2-field/3-field split, addresses
 - `templates/sign-delegation.html` — the canonical signing page
 - `templates/redeem-delegation.cjs` — dry-run is the canonical pre-broadcast check
 

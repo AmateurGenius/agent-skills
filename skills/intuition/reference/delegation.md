@@ -25,7 +25,7 @@ Chain IDs and RPCs are listed in §6 below.
 - [6. Contract addresses](#6-contract-addresses)
 - [7. The caveats-as-authority model](#7-the-caveats-as-authority-model)
 - [7b. Chained / redelegated authority](#7b-chained--redelegated-authority)
-- [8. Agent wallet setup (OpenWallet)](#8-agent-wallet-setup-openwallet)
+- [8. Agent wallet setup (the delegate key)](#8-agent-wallet-setup-the-delegate-key)
 - [9. Chain-keyed environment resolution](#9-chain-keyed-environment-resolution)
 - [10. Verification commands](#10-verification-commands)
 
@@ -381,10 +381,42 @@ when you should not trust it.
 
 ---
 
-## 8. Agent wallet setup (OpenWallet)
+## 8. Agent wallet setup (the delegate key)
 
 The agent holds its **own** key and signs redemptions with it. The main account
-key is never involved after the Hybrid is deployed and funded.
+key is never involved after the Hybrid is deployed and funded. The delegate
+address is what the delegator targets in the delegation.
+
+**Provision it once, before the delegator builds the delegation:**
+
+```bash
+node templates/provision-agent-wallet.cjs
+```
+
+That script is the single entry point. It:
+
+1. reports the existing delegate if `~/.intuition/agent-wallet.json` is already present;
+2. otherwise creates an **OWS** wallet when the CLI is available and prints its EVM address;
+3. otherwise falls back to a local key file (mode `0600`) — the path for platforms OWS
+   does not serve.
+
+Take the printed address and hand it to the delegator: it is the `delegate` field of the
+delegation. **Do this before any write** — an agent that writes under its own key instead
+of a delegated one splits the user's attestations and reputation across two addresses.
+
+**Mission-recommended stack: OWS (Open Wallet Standard).** The mission names
+OpenWallet for this step. The published package is
+[`@open-wallet-standard/core`](https://www.npmjs.com/package/@open-wallet-standard/core),
+whose CLI is `ows`:
+
+```bash
+npm install -g @open-wallet-standard/core
+ows wallet create --name "intuition-agent"      # prints the derived address per chain
+ows sign tx --wallet intuition-agent --chain evm --tx <signed-tx-hex>
+```
+
+**Local-key path** (what `templates/redeem-delegation.cjs` reads). The delegate key
+lives in `~/.intuition`, so it must exist there:
 
 ```bash
 # One-time, agent-side. Generates a fresh key; writes 0600.
@@ -402,7 +434,7 @@ node -e '
 |---|---|
 | Main account (Hybrid **owner**) | `0x61A20dE84D7E5C422Af323D47497ED3bf43Fa5ee` |
 | Hybrid (the **delegator**) | `0x433d9b2a6993f0cf36d9cce96d5cfe269d69ec14` |
-| Agent / OWS (the **delegate**) | `0xe9BfdEC6Fa795a24e3069292248d9d16570E050d` |
+| Agent (the **delegate**) | `0xe9BfdEC6Fa795a24e3069292248d9d16570E050d` |
 
 **Chain of authority:** `Main (owner of Hybrid) → Hybrid (delegator) → Agent (delegate)`.
 The signer is the Main EOA; the delegator is the Hybrid. Those are different
@@ -416,6 +448,19 @@ cast wallet address --private-key "$(jq -r .privateKey ~/.intuition/agent-wallet
 
 The agent can therefore sign redemptions on its own, forever, without the main
 key existing on the agent's machine at all.
+
+**How the agent signs a redemption.** A redemption is an EOA transaction from the
+delegate to the DelegationManager (`redeemDelegations`). Two paths, and
+`templates/redeem-delegation.cjs` picks automatically:
+
+- **Local key file present** — the script signs directly. This is the tested default.
+- **No local key file** — the script signs through OWS:
+  `ows sign tx --wallet intuition-agent --chain <chainId> --tx <raw-tx-hex>`, then
+  broadcasts the signed blob.
+
+**The key never leaves the wallet** — that is the point of OWS, and the reason it is the
+recommended stack wherever it installs. The OWS branch fails loudly rather than falling
+back to a direct write.
 
 ---
 

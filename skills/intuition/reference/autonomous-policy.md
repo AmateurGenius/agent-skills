@@ -136,7 +136,7 @@ Use the chain IDs and MultiVault addresses from `reference/network-config.md` wh
   "delegation": {
     "mode": "direct",
     "mainAccountAddress": null,
-    "smartAccountAddress": null,
+    "hybridAddress": null,
     "requireApprovalCheck": true,
     "dailyBudgetWei": "100000000000000000000"
   }
@@ -147,15 +147,19 @@ Use the chain IDs and MultiVault addresses from `reference/network-config.md` wh
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `delegation.mode` | string | Yes | `direct` (no delegation), `creation_only` (OWS creation track), `deposit_only` (Smart Wallet deposit track), or `both` (full agent) |
-| `delegation.mainAccountAddress` | string \| null | Yes for delegated modes | The ultimate beneficiary address. All receiver-bearing operations must target this address. |
-| `delegation.smartWalletAddress` | string \| null | Yes for `separate_smart_wallet` | The Smart Wallet address that holds MultiVault approval. Used for simulation checks. |
-| `delegation.requireApprovalCheck` | boolean | Yes | If true, the agent simulates the inner MultiVault call from the Smart Wallet's context to confirm approval exists. Only used for deposit track (`deposit_only` or `both`). Ignored for `creation_only` and `direct`. |
+| `delegation.mode` | string | Yes | `direct` (no delegation) or `delegated` (one Hybrid -> Agent delegation covering every operation) |
+| `delegation.mainAccountAddress` | string \| null | Yes for `delegated` | The ultimate beneficiary address. All receiver-bearing operations must target this address. |
+| `delegation.hybridAddress` | string \| null | Yes for `delegated` | The Hybrid smart account — the delegator, and the `msg.sender` at MultiVault for every operation. Used for simulation checks. |
+| `delegation.requireApprovalCheck` | boolean | Yes | If true, the agent simulates the inner MultiVault call from the Hybrid's context to confirm its MultiVault approval exists. Ignored for `direct`. |
 | `delegation.dailyBudgetWei` | string \| null | No | Agent-side self-enforced daily TRUST spend limit. Independent of on-chain caveat caps. Resets every 86400 seconds. |
 
+> **`delegated` is the default.** It is the mode to run in whenever the user has granted authority — the agent then acts under the Hybrid's authority and never under its own key. `direct` is opt-in, for a user who has not delegated or for one-off operations the user performs themselves.
+>
 > When `delegation.mode` is `direct`, the agent skips the delegation authority gate and produces standard Path B transaction output (direct MultiVault calls).
 >
-> When `delegation.mode` is `creation_only`, `deposit_only`, or `both`, the agent loads the held delegation from state and runs the full authority verification gate from `reference/delegation-authority.md` before any other policy check.
+> When `delegation.mode` is `delegated`, the agent loads the held delegation from state and runs the full authority verification gate from `reference/delegation-authority.md` before any other policy check.
+>
+> **If `delegated` is set and no delegation is held, the agent HALTS — it does not fall back to a direct write.** Emitting a `delegation_failure` with reason `delegation_not_held` and stopping is the correct outcome; the operator then provisions (`node templates/provision-agent-wallet.cjs` → delegator signs). A direct write in this state splits the user's attestations and reputation across two addresses, which is the failure the mode exists to prevent.
 
 ### Holding a Delegation
 
@@ -202,9 +206,9 @@ Minimum intent object:
    - 5c. Check on-chain revocation via `DelegationManager.disabledDelegations(bytes32)` — pass the value returned by on-chain `getDelegationHash()`. `isDisabled(Delegation)` and `isRevoked(bytes32)` do not exist.
    - 5d. Check expiry via caveat terms vs `block.timestamp`.
    - 5e. Verify intended operation selector is in AllowedMethods caveat.
-   - 5f. Verify proposed value does not exceed NativeTokenTransferAmount caveat.
+   - 5f. Verify proposed value does not exceed the ValueLte caveat (`0x92bf1232…`).
    - 5g. Verify call count does not exceed LimitedCalls caveat.
-   - 5h. If `separate_smart_wallet`, simulate inner call from Smart Wallet to confirm MultiVault approval exists.
+   - 5h. If `requireApprovalCheck` is true, simulate the inner call from the Hybrid's context to confirm its MultiVault approval exists.
    - 5i. Verify receiver == `mainAccountAddress` for receiver-bearing ops.
    - 5j. Verify agent-side `dailyBudgetWei` if configured.
    - If any check fails → emit `delegation_failure` object; STOP (exit code 3).
@@ -282,19 +286,27 @@ Use this shape when delegated authority verification fails:
 {
   "status": "delegation_failure",
   "reason": "method_not_allowed",
-  "delegationHash": "0xabc123...",
+  "delegationHash": "0x3fc5a2a19c85eb6f43f4736705a5d86aecd5ed2a045741ff9ddd8ef475c1399e",
   "failedCheck": "methodAllowlist",
   "details": {
-    "intendedSelector": "0x8c5be1e5",
+    "intendedSelector": "0x4342e966",
     "allowedSelectors": [
-      "0x8f0c6fc8",
-      "0x47e7ef24",
-      "0x6fc1bfa9",
-      "0x2e7e170b"
+      "0x2fb1d270",
+      "0xa814c1fe",
+      "0x61403309",
+      "0x3c6bbf45"
     ]
   }
 }
 ```
+
+Every selector above is real and recomputed with `cast sig`:
+`approve(address,uint8)` = `0x4342e966` (not in the allowlist),
+`deposit(address,bytes32,uint256,uint256)` = `0x2fb1d270`,
+`redeem(address,bytes32,uint256,uint256,uint256)` = `0xa814c1fe`,
+`createAtoms(bytes[],uint256[])` = `0x61403309`,
+`createTriples(bytes32[],bytes32[],bytes32[],uint256[])` = `0x3c6bbf45`.
+Never copy a selector from a doc or a sample — recompute it.
 
 ### Example: Delegation Revoked
 
@@ -320,7 +332,7 @@ Use this shape when delegated authority verification fails:
 - `method_not_allowed` — Intended selector not in AllowedMethods caveat.
 - `spend_cap_exceeded` — Cumulative spend + proposed value > cap.
 - `call_limit_exceeded` — Redemption count >= LimitedCalls caveat.
-- `multivault_unauthorized` — Smart Wallet lacks MultiVault approval (deposit track).
+- `multivault_unauthorized` — The Hybrid lacks MultiVault approval.
 - `receiver_mismatch` — Receiver in inner tx does not match `mainAccountAddress`.
 - `daily_budget_exceeded` — Agent-side self-enforced daily limit exceeded.
 
@@ -403,5 +415,5 @@ The signer environment remains isolated from untrusted prompt content.
 2. **The Agent decides autonomously within its delegated box.** Once a valid delegation is loaded, the agent verifies and acts per-operation without human approval. The caveats are the policy boundary.
 3. **Daily budget is agent-side only.** The `dailyBudgetWei` field is not enforced on-chain. It is a self-imposed limit that the agent tracks and enforces independently of caveat enforcers.
 4. **Delegation mode is session-scoped.** Changing `delegation.mode` requires reloading the policy file or restarting the agent session. An agent cannot switch between direct and delegated mode mid-session without explicit reconfiguration.
-5. **Revocation check uses `disabledDelegations(bytes32)`.** The DelegationManager does not expose `isRevoked(bytes32)` or `isDisabled(Delegation)`. The on-chain revocation check must use `disabledDelegations(bytes32)` with `keccak256(abi.encode(delegation_struct))` (uint256 salt, bytes signature).
+5. **Revocation check uses `disabledDelegations(bytes32)`.** The DelegationManager does not expose `isRevoked(bytes32)` or `isDisabled(Delegation)`. Pass the value returned by `getDelegationHash(delegation)` — the contract's own hash. Do NOT use `keccak256(abi.encode(delegation_struct))`; that is a different value and reads `false` for a delegation that is actually revoked.
 6. **Read the domain separator from `getDomainHash()`.** The DelegationManager exposes `getDomainHash()` (`0x83ebb771`) and `getDelegationHash(Delegation)` (`0x66134607`). Always read the domain separator on-chain — do not reconstruct it from guessed `name`/`version` literals. Off-chain hashing is preferred only to avoid an extra RPC round-trip.

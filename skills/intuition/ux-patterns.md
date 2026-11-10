@@ -14,7 +14,7 @@ Before executing ANY Intuition operation, run these checks **in order**:
 
 Check for setup notes, prior session state, and planned workflows:
 
-- Read `reference/operator-supplied session notes` if it exists (session-specific constants, agent wallet, planned workflow)
+- Check for operator session notes and prior session state (a setup file the operator maintains, or a previous session's constants) before building anything
 - Use `session_search` to find prior Intuition work if no setup notes exist
 - **Report what you found to the user BEFORE building anything**
 
@@ -25,6 +25,10 @@ For Path C operations, check if a valid delegation already exists:
 - Read `~/.intuition/agent-wallet.json` (mode 0600) and any signed-delegation JSON files
 - Check `disabledDelegations(hash)` on-chain for any cached delegation hashes
 - **If a valid unexpired delegation exists, SKIP straight to execution** — do not ask the user to re-sign
+- **If none is held, STOP. Provision one — do not write directly.** Run
+  `node templates/provision-agent-wallet.cjs` for the agent wallet, hand the address to the
+  delegator, and have them sign. Only then write. Falling back to a direct write when the
+  user expected delegation splits their attestations and reputation across two addresses.
 
 ### Step 3: State the Plan
 
@@ -55,6 +59,7 @@ CREATE2 from SimpleFactory), NOT an EIP-7702 upgraded EOA. The Main Account
 data via the MetaMask `eth_signTypedData_v4` popup in the browser.
 
 | Method | Works for Path C? | Notes |
+|---|---|---|
 | `eth_signTypedData_v4` (MetaMask browser popup) | YES | Canonical. Works on desktop + mobile. The demo (tx `0x56c6d3e0`) proves MetaMask mobile signs correctly. |
 | `eth_sign` / `personal_sign` | NO | Deprecated or adds wrong prefix. |
 | Local `ethers.SigningKey` with exported key | NO | Debugging/verification only (TESTING.md §B). NEVER export the Main key. |
@@ -62,7 +67,7 @@ data via the MetaMask `eth_signTypedData_v4` popup in the browser.
 The `0xffffffff` ERC-1271 result is NOT evidence that MetaMask corrupts
 digests — it means the typed-data construction has a typehash/encoding mismatch
 (B1: 2-field vs 3-field Caveat). Fix the page, not the signing path. See
-the signing-bug notes (not shipped) and the signing-bug notes (not shipped).
+`reference/delegation-debugging.md` for the digest and encoding checks.
 
 ### Delegation Re-Use After Setup
 
@@ -83,7 +88,12 @@ to sign again unless:
 4. Click "Sign Delegation" → MetaMask `eth_signTypedData_v4` popup appears.
 5. The page verifies on-chain (`isValidSignature → 0x1626ba7e`) before
    accepting and emits the signed-delegation JSON.
-6. Save the JSON to `~/.intuition/agent-wallet.json` (chmod 600).
+6. Save the signed delegation JSON where the agent will look for it — for example
+   `templates/signed-delegation.json`, or any path recorded in the session notes.
+   **Do NOT write it to `~/.intuition/agent-wallet.json`** — that file holds the
+   agent's **private key**. Overwriting it destroys the delegate key and the
+   delegation becomes unredeemable. The delegation object is not a secret; the
+   key file is.
 
 ### Rules
 
@@ -91,7 +101,7 @@ to sign again unless:
   signing page (`templates/sign-delegation.html`) and have them click through
   the MetaMask popup.
 - **NEVER** store the Main Account key to disk. Only `~/.intuition/agent-wallet.json`
-  (the agent's OWS wallet) may persist a private key — and only the delegate key.
+  (the agent's delegate wallet) may persist a private key — and only the delegate key.
 - **ALWAYS** explain that the Main key stays in MetaMask — the signing page
   constructs typed-data, MetaMask hashes and signs it internally, and the
   page verifies the result on-chain before accepting.
@@ -206,7 +216,7 @@ const checksummed = ethers.getAddress('0x2c21fd0cb9dc8445cb3fb0dc5e7bb0aca01842b
 
 **Problem:** Calling `isApprovedFor(address,address)` on testnet MultiVault reverts with `require(false)` because the function doesn't exist on testnet.
 
-**Solution:** On testnet, always call `approve(SmartWallet, 3)` directly without a pre-check. The call is idempotent — if approval already exists, it succeeds silently.
+**Solution:** On testnet, always call `approve(Hybrid, 3)` directly without a pre-check. The call is idempotent — if approval already exists, it succeeds silently.
 
 ### 6.4 ROOT_AUTHORITY and MODE_DEFAULT Byte Length
 
@@ -214,7 +224,7 @@ const checksummed = ethers.getAddress('0x2c21fd0cb9dc8445cb3fb0dc5e7bb0aca01842b
 
 **Correct values:**
 ```javascript
-const ROOT_AUTHORITY=*** + "f".repeat(64); // 0x + 64 Fs = 66 chars
+const ROOT_AUTHORITY = "0x" + "f".repeat(64); // 0x + 64 Fs = 66 chars
 const MODE_DEFAULT = "0x" + "0".repeat(64); // 0x + 64 zeros = 66 chars
 ```
 
@@ -253,24 +263,18 @@ const tripleCost = await provider.call(MULTIVAULT, "getTripleCost()(uint256)");
 
 **Solution:** Skip `enableDelegation` entirely. The delegation is validated by signature at redemption time.
 
-### 6.8 EIP-7702 Upgrade Commands
+### 6.8 EIP-7702 Is Not Used Here
 
-**Problem:** Upgrading a wallet to EIP-7702 requires the implementation address directly, NOT the `0xef0100...` prefix.
+The delegator is a **Hybrid smart account** — an ERC-1967 proxy deployed through
+CREATE2 from SimpleFactory (see §2). It is **not** an EIP-7702 upgraded EOA, and
+this skill does not use EIP-7702 anywhere in the delegation flow. If a doc or a
+colleague suggests "just upgrade the EOA to 7702", that is the wrong model: the
+delegator must be a contract so that `disableDelegation` sees
+`msg.sender == delegator`.
 
-**Correct command:**
-```bash
-cast send $OWS_ADDRESS --auth $EIP7702_IMPLEMENTATION --private-key $OWS_PK
-```
+### 6.9 Funding Requirements
 
-**Verification:**
-```bash
-cast code $OWS_ADDRESS
-# Should return: 0xef0100<implementation-address>
-```
-
-### 6.9 Funding Requirements for OWS
-
-**Problem:** The OWS needs sufficient tTRUST for both creation costs AND gas. Running out of tTRUST causes reverts mid-operation.
+**Problem:** The Hybrid and the agent each need sufficient TRUST — the Hybrid for creation costs and deposit value, the agent for gas. Running out causes reverts mid-operation.
 
 **Funding guidelines:**
 - Per atom creation: ~1 tTRUST (creation cost) + gas
@@ -332,11 +336,12 @@ const calldata = iface.encodeFunctionData("disableDelegation", [[
 
 1. ✓ Network selected (mainnet 1155 / testnet 13579)
 2. ✓ Domain hash read from-chain via `getDomainHash()`
-3. ✓ Delegation signature verified (recovered address === delegator)
-4. ✓ `ROOT_AUTHORITY` is exactly 66 chars (0x + 64 Fs)
-5. ✓ `MODE_DEFAULT` is exactly 66 chars (0x + 64 zeros)
-6. ✓ Array lengths match (for batch/triple operations)
-7. ✓ Correct cost queried (`getAtomCost` vs `getTripleCost`)
-8. ✓ Sufficient tTRUST balance for operation + gas
-9. ✓ `execCallData` uses `solidityPacked` (not `abi.encode`)
-10. ✓ Caveat terms use correct encoding (raw bytes4 for methods, `abi.encode(uint256)` for limits)
+3. ✓ Delegation signature verified — **ERC-1271**, not ECDSA recovery: the delegator is the Hybrid contract, so call `isValidSignature(digest, signature)` on it and require `0x1626ba7e`. (Recovering the signer yields the **owner** EOA, not the delegator.)
+4. ✓ Revocation checked on-chain: `disabledDelegations(getDelegationHash(delegation))` is `false`
+5. ✓ `ROOT_AUTHORITY` is exactly 66 chars (0x + 64 Fs)
+6. ✓ `MODE_DEFAULT` is exactly 66 chars (0x + 64 zeros)
+7. ✓ Array lengths match (for batch/triple operations)
+8. ✓ Correct cost queried (`getAtomCost` vs `getTripleCost`)
+9. ✓ Sufficient TRUST balance for operation + gas
+10. ✓ `execCallData` uses `solidityPacked` (not `abi.encode`)
+11. ✓ Caveat terms use correct encoding (raw bytes4 for methods, `abi.encode(uint256)` for limits)

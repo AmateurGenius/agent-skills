@@ -14,8 +14,12 @@ Canonical skill for producing correct Intuition Protocol transaction parameters.
   runtime with an Intuition pinning API key.
 - Funded wallet: tTRUST on testnet or $TRUST on mainnet. Bridge via https://app.intuition.systems/bridge.
 - **For delegation:** An agent wallet (separate from the delegator's wallet) and
-  secure storage for the signed Delegation object (`~/.intuition/agent-wallet.json`,
-  permissions `0600`). See `reference/delegation.md` for wallet setup.
+  somewhere to keep the signed Delegation object. Provision the agent wallet with
+  `node templates/provision-agent-wallet.cjs` — it creates an **OWS** wallet when the
+  platform supports one and otherwise falls back to a local key at
+  `~/.intuition/agent-wallet.json` (permissions `0600`). The signed delegation is a
+  **separate** file, e.g. `templates/signed-delegation.json`. Never write the delegation
+  over the key file. See `reference/delegation.md` for wallet setup.
 
 ## Installation
 
@@ -28,6 +32,20 @@ To pin a published release instead of tracking `main`, install from a tag or SHA
 ```bash
 npx skills add 0xIntuition/agent-skills#<tag-or-sha> --skill intuition
 ```
+
+### Template dependencies
+
+The Path C executor scripts and the doc-verification gate need Node packages.
+Install them once, from the skill's `templates/` directory:
+
+```bash
+cd <skill-dir>/templates
+npm install
+```
+
+This is the skill's single dependency manifest (`templates/package.json`, with a
+committed lockfile). The browser signing page needs no install — it loads the
+SDK from a CDN.
 
 ## Network Selection
 
@@ -88,8 +106,7 @@ DEPOSIT_WEI=$(cast --to-wei 0.002)
 test "$DEPOSIT_WEI" -ge "$MIN_DEPOSIT" || { echo "Deposit is below minDeposit"; exit 1; }
 
 EXPECTED_SHARES=$(cast call $MULTIVAULT "previewDeposit(bytes32,uint256,uint256)(uint256,uint256)" "$TERM_ID" "$CURVE_ID" "$DEPOSIT_WEI" --rpc-url $RPC | awk 'NR == 1 { print $1 }')
-MIN_SHARES=$(printf '%s * 95 / 100
-' "$EXPECTED_SHARES" | bc)
+MIN_SHARES=$(printf '%s * 95 / 100\n' "$EXPECTED_SHARES" | bc)
 CALLDATA=$(cast calldata "deposit(address,bytes32,uint256,uint256)" "$RECEIVER" "$TERM_ID" "$CURVE_ID" "$MIN_SHARES")
 
 jq -n --arg to "$MULTIVAULT" --arg data "$CALLDATA" --arg value "$DEPOSIT_WEI" --arg chainId "$CHAIN_ID" '{to:$to,data:$data,value:$value,chainId:$chainId}'
@@ -154,9 +171,14 @@ Main Account (owner of Hybrid) -> Hybrid (delegator) -> Agent (delegate)
 
 The Main Account signs the delegation via a MetaMask popup; the Hybrid is the
 on-chain delegator; the agent is the delegate. The Main Account key is used once
-for setup (deploy + approve) and is never stored by the agent or skill. Creation
-of atoms/triples is a separate track in which the agent's own wallet acts
-directly — see `reference/delegation.md` for why those two tracks differ.
+for setup (deploy + approve) and is never stored by the agent or skill.
+
+**One chain for every action.** `createAtoms`, `createTriples`, `deposit` and
+`redeem` all run through the same `Hybrid -> Agent` delegation: the Hybrid is
+`msg.sender` at MultiVault in every case. Creation attribution follows the
+delegator, which is acceptable because who created an atom carries no semantic
+weight on Intuition — position ownership does. There is no separate creation
+track in which the agent acts on its own key.
 
 **Revoking:** the Main account cannot call `disableDelegation` directly — it is
 not the delegator — so revocation goes through an ERC-4337 UserOp in which the
@@ -177,6 +199,15 @@ Hybrid is `msg.sender`. See `operations/revoke-delegation.md`.
 > desktop and mobile (proof tx `0x56c6d3e0`).
 
 **Step 1 — Delegator: Generate and sign the delegation (browser + MetaMask popup).**
+
+The agent wallet must exist first. On the agent side, run:
+
+```bash
+node templates/provision-agent-wallet.cjs
+# → { "provisioned": true, "path": "ows" | "local-key", "delegate": "0x…" }
+```
+
+Paste that `delegate` address into the Agent field of the signing page.
 
 Open `templates/sign-delegation.html` in a browser on Intuition Testnet (serve via
 `python3 -m http.server 8000` from the templates/ dir if needed — MetaMask requires
@@ -215,26 +246,37 @@ The Output panel shows a JSON blob (no `digest` field — the redeem re-derives 
 
 **Step 2 — Agent: Receive delegation, verify authority, and execute.**
 
-The agent stores the delegation alongside its wallet key in
-`~/.intuition/agent-wallet.json` (mode `0600`) and runs
-the authority verification gate from `reference/delegation-authority.md` before
-every write. If the gate passes, the agent wraps the Intuition calldata in
-`redeemDelegations()` and outputs the nested transaction.
+The agent keeps the signed delegation in its own file (e.g.
+`templates/signed-delegation.json`) — **not** in `~/.intuition/agent-wallet.json`, which
+holds the delegate private key. It then runs the authority verification gate from
+`reference/delegation-authority.md` before every write, and executes with the same
+script used for direct writes:
+
+```bash
+# dry-run (the default — simulates and emits JSON, broadcasts nothing)
+node templates/redeem-delegation.cjs templates/signed-delegation.json \
+  --op deposit --term 0x<termId> --amount 0.001
+
+# delegated atom creation
+node templates/redeem-delegation.cjs templates/signed-delegation.json \
+  --op create-atom --atom-data ipfs://bafy…
+```
+
+Add `--broadcast --yes` to send. `--atom-data` must be an `ipfs://` URI (from
+`reference/schemas.md`) or a `caip10:` address. Add `--chain mainnet` for chain 1155.
 
 See `reference/delegation-authority.md` for the full autonomous verification
 flow and `operations/create-delegation.md` for the complete delegator workflow.
-For the full tested lifecycle (create → deposit → revoke in under 15 min),
 
 ## What the Skill Installs
 
 - `SKILL.md`: canonical machine-facing contract, invariants, output shapes, and delegation routing.
 - `ux-patterns.md`: mandatory UX patterns — pre-task context check, private key request (with MetaMask limitation), multi-step workflow flagging, network selection, output-before-action.
 - `reference/delegation.md` + `operations/`: the delegation model and its three procedures
-  (create -> authority check -> revoke). Superseded quick start retained as
-  the four delegation deliverables above supersede the old quick start.
+  (create -> authority check -> revoke).
 - `operations/`: write-specific encoding flows for create, deposit, redeem, batch, approvals, and delegation.
 - `reference/`: read queries, network config, GraphQL, pinning, config semantics, verification, nested-triple composition, delegation concepts, and autonomous policy.
-- `templates/`: signing page (MetaMask HTML), CLI signer, redeem/revoke scripts for both tracks.
+- `templates/`: signing page (MetaMask HTML), executor and revoke scripts, and the shared `networks.cjs` chain module.
 - `scripts/`: reusable attribution probes and test harnesses.
 
 ### Operations
@@ -258,10 +300,9 @@ For the full tested lifecycle (create → deposit → revoke in under 15 min),
 | File | Purpose |
 |------|---------|
 | `reference/network-config.md` | Canonical network metadata, session env values, and viem chain defs |
-| `reference/delegation.md` | Two-track delegation model (Creation Authority via OWS + Deposit Authority via Smart Wallet), agent wallet setup |
+| `reference/delegation.md` | The delegation model: three roles, one delegation chain, struct anatomy, addresses, agent wallet setup |
 | `reference/delegation-authority.md` | Autonomous verification gate for delegated agents — signature, revocation, expiry, caveat compliance, MultiVault approval simulation, receiver binding |
 | `reference/delegation-debugging.md` | Layered debugging order and diagnostic commands |
-| `reference/unified-delegation-architecture.md` | Two-track model: Creation Authority (OWS) + Deposit Authority (Smart Wallet) |
 | `reference/graphql-queries.md` | GraphQL discovery — search, traverse, aggregate |
 | `reference/schemas.md` | Schema types, IPFS pinning, and structured atom creation |
 | `reference/reading-state.md` | On-chain reads and session setup |
@@ -280,13 +321,16 @@ For unattended execution, policy guardrails and runtime validation live in
 [reference/autonomous-policy.md](./reference/autonomous-policy.md).
 
 The policy now includes delegation configuration:
-- `delegation.mode`: `direct` (no delegation), `creation_only` (OWS creation track), `deposit_only` (Smart Wallet deposit track), or `both` (full agent).
+- `delegation.mode`: `delegated` (**the default**) or `direct` (no delegation).
 - `delegation.mainAccountAddress`: The ultimate beneficiary for all receiver-bearing operations.
+- `delegation.hybridAddress`: The Hybrid smart account — the delegator, and `msg.sender` at MultiVault.
 - `delegation.dailyBudgetWei`: Agent-side self-enforced daily TRUST spend limit.
 
-When delegation mode is active, the agent runs the authority verification gate
-from `reference/delegation-authority.md` before every write. If the gate fails,
-the agent emits a `delegation_failure` object and halts.
+**Delegation is the default signing behaviour.** When the user has granted authority, the
+agent uses it and never acts under its own key; `direct` is opt-in, for a user who has not
+delegated. When delegation mode is active, the agent runs the authority verification gate
+from `reference/delegation-authority.md` before every write. If the gate fails, the agent
+emits a `delegation_failure` object and halts.
 
 ## Design Philosophy
 

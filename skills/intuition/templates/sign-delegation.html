@@ -45,6 +45,12 @@
     input[type=file] { font-family:inherit; font-size:.9em; color:var(--text);
                        background:var(--marble); border:1px solid var(--border);
                        border-radius:6px; padding:8px; width:100%; }
+    input[type=text] { width:100%; box-sizing:border-box; background:var(--marble);
+                       color:var(--text); border:1px solid var(--border);
+                       border-radius:6px; padding:8px; margin:2px 0 8px;
+                       font-family:ui-monospace, monospace; font-size:.9em; }
+    select { background:var(--marble); color:var(--text); border:1px solid var(--border);
+             border-radius:6px; padding:8px; font-size:1em; }
     /* min-height var(--tap) = 44px target; focus ring measured >=7.5:1 on every surface. */
     button { background:var(--accent); color:var(--on-accent); border:1px solid transparent;
              padding:10px 16px; min-height:var(--tap); cursor:pointer; font-family:inherit;
@@ -112,12 +118,23 @@
   <div class="status" id="connectStatus" role="status" aria-live="polite"></div>
   <button onclick="loadFromTextarea()">Load from Textarea</button>
   <button class="ghost" onclick="buildFresh()">Build fresh (SDK)</button>
+  <h3>Network &amp; deployment</h3>
+  <label for="networkSelect">Network</label><br>
+  <select id="networkSelect" onchange="applyNetwork(this.value)">
+    <option value="testnet" selected>Intuition Testnet (13579)</option>
+    <option value="mainnet">Intuition Mainnet (1155)</option>
+  </select><br><br>
+  <label for="ownerInput">Owner EOA (Hybrid owner — the signer)</label><br>
+  <input type="text" id="ownerInput" class="addrInput" value="0x61A20dE84D7E5C422Af323D47497ED3bf43Fa5ee" onchange="applyDeployment()"><br>
+  <label for="agentInput">Agent (delegate)</label><br>
+  <input type="text" id="agentInput" class="addrInput" value="0xe9BfdEC6Fa795a24e3069292248d9d16570E050d" onchange="applyDeployment()"><br>
+  <span class="muted">The Hybrid address is predicted from the network's factory + the deploy salt + the owner, and deployed in step 2a.</span>
   <h3>Roles</h3>
   <div class="grid">
-    <b>Hybrid (delegator)</b><span id="hybridDisplay">0x433d9b2a6993f0cf36d9cce96d5cfe269d69ec14</span>
-    <b>Owner EOA (signer)</b><span>0x61A20dE84D7E5C422Af323D47497ED3bf43Fa5ee</span>
+    <b>Hybrid (delegator)</b><span id="hybridDisplay">…</span>
+    <b>Owner EOA (signer)</b><span id="ownerDisplay">0x61A20dE84D7E5C422Af323D47497ED3bf43Fa5ee</span>
     <b>Agent (delegate)</b><span id="agentDisplay">0xe9BfdEC6Fa795a24e3069292248d9d16570E050d</span>
-    <b>MultiVault</b><span>0x2Ece8D4dEdcB9918A398528f3fa4688b1d2CAB91</span>
+    <b>MultiVault</b><span id="multivaultDisplay">0x2Ece8D4dEdcB9918A398528f3fa4688b1d2CAB91</span>
   </div>
   <div class="status" id="caveatStatus" role="status" aria-live="polite"></div>
   <button class="ghost" onclick="checkCaveats()">Check caveats</button>
@@ -169,20 +186,45 @@ window.addEventListener('unhandledrejection', e => showFatal('rejection', (e.rea
 
 // ============================== constants ==============================
 const DM         = "0xdb9B1e94B5b69Df7e401DDbedE43491141047dB3";
-const CHAIN_ID   = 13579;
-const CHAIN_NAME = "Intuition Testnet";
-const FACTORY    = "0x54c68ad35b082546a1e2e3e1a7542Ce9d3A2e756";
 const HYBRID_IMPL= "0x48dbe696a4d990079e039489ba2053b36e8ffec4";
 const DEPLOY_SALT= "0x0000000000000000000000000000000000000000000000000000000000000000";
-const HYBRID     = "0x433d9b2a6993f0cf36d9cce96d5cfe269d69ec14";
-const OWNER_EOA  = "0x61A20dE84D7E5C422Af323D47497ED3bf43Fa5ee";
-const AGENT      = "0xe9BfdEC6Fa795a24e3069292248d9d16570E050d";
-const MULTIVAULT = "0x2Ece8D4dEdcB9918A398528f3fa4688b1d2CAB91";
 const MAGIC      = "0x1626ba7e";
 const HEX_PREFIX = String.fromCharCode(48, 120);   // the two chars 0x
 const ROOT_AUTHORITY = HEX_PREFIX + 'f'.repeat(64);   // all-ones root authority
 const UINT256_MAX = 57896044618658097711785492504343953926634992332820282019728792003956564819967n;
 const APPROVE_DEPOSIT_REDEMPTION = 3;      // DEPOSIT | REDEMPTION
+
+// Both Intuition networks. Factory and MultiVault are chain-specific; the Hybrid is deployed
+// per chain and predicted from (factory, salt, owner). Nothing here is tied to one deployment.
+const NETWORKS = {
+  testnet: {
+    chainId: 13579, name: 'Intuition Testnet',
+    rpc: 'https://testnet.rpc.intuition.systems/http',
+    factory: '0x54c68ad35b082546a1e2e3e1a7542Ce9d3A2e756',
+    multivault: '0x2Ece8D4dEdcB9918A398528f3fa4688b1d2CAB91',
+  },
+  mainnet: {
+    chainId: 1155, name: 'Intuition Mainnet',
+    rpc: 'https://rpc.intuition.systems/http',
+    factory: '0x69Aa2f9fe1572F1B640E1bbc512f5c3a734fc77c',
+    multivault: '0x6E35cF57A41fA15eA0EaE9C33e751b01A784Fe7e',
+  },
+};
+
+// Deployment-specific inputs (per user, not per chain). Owner and agent are plain addresses,
+// so the same values work on both networks; the Hybrid address is predicted per network.
+let NET = NETWORKS.testnet;
+let OWNER_EOA = '0x61A20dE84D7E5C422Af323D47497ED3bf43Fa5ee';
+let AGENT     = '0xe9BfdEC6Fa795a24e3069292248d9d16570E050d';
+let chain = makeChain(NET);
+let predictedHybrid = null;
+
+function makeChain(net) {
+  return { id: net.chainId, name: net.name,
+    nativeCurrency: { name: 'TRUST', symbol: 'TRUST', decimals: 18 },
+    rpcUrls: { default: { http: [net.rpc] } } };
+}
+
 
 // ERC1967Proxy creation bytecode (~2.0KB — MetaMask-safe). Deploying the full
 // HybridDeleGator instead fails: its bytecode is 44KB (over MetaMask's ~43KB limit)
@@ -208,10 +250,6 @@ const KIT_URL   = 'https://cdn.jsdelivr.net/npm/@metamask/smart-accounts-kit@2.0
 const UTILS_URL = 'https://cdn.jsdelivr.net/npm/@metamask/smart-accounts-kit@2.0.0/utils/+esm';
 const VIEM_URL  = 'https://cdn.jsdelivr.net/npm/viem@2.55.13/+esm';
 const CORE_URL  = 'https://cdn.jsdelivr.net/npm/@metamask/delegation-core@3.0.0/+esm';
-
-const chain = { id: CHAIN_ID, name: CHAIN_NAME,
-  nativeCurrency: { name: 'TRUST', symbol: 'TRUST', decimals: 18 },
-  rpcUrls: { default: { http: ['https://testnet.rpc.intuition.systems/http'] } } };
 
 let parsed = null, sdk = null, digest = null;
 const SIG_OF = {};
@@ -245,6 +283,66 @@ async function loadSdk() {
 }
 function pubClient(s) { return s.createPublicClient({ chain, transport: s.custom(window.ethereum) }); }
 
+// ============================== network & deployment ==============================
+function applyNetwork(name) {
+  if (!NETWORKS[name]) return;
+  NET = NETWORKS[name];
+  chain = makeChain(NET);
+  $('networkSelect').value = name;
+  $('multivaultDisplay').textContent = NET.multivault;
+  $('chainLine').textContent = NET.name + ' (' + NET.chainId + ')';
+  refreshChainState();
+  applyDeployment();
+}
+
+function applyDeployment() {
+  const o = ($('ownerInput').value || '').trim();
+  const a = ($('agentInput').value || '').trim();
+  if (/^0x[0-9a-fA-F]{40}$/.test(o)) OWNER_EOA = o;
+  if (/^0x[0-9a-fA-F]{40}$/.test(a)) AGENT = a;
+  $('ownerDisplay').textContent = OWNER_EOA;
+  $('agentDisplay').textContent = AGENT;
+  predictAndShow();
+}
+
+async function predictAndShow() {
+  try {
+    const p = await predictHybrid();
+    predictedHybrid = p.predicted;
+    $('predictedAddress').textContent = p.predicted;
+    $('hybridDisplay').textContent = p.predicted;
+  } catch (e) { /* SDK not loaded yet — the load handler retries */ }
+}
+
+// Chain state (costs, curve) — queried, never hardcoded. Mainnet's atom cost is 100x
+// testnet's, so a hardcoded simulation value silently tests the wrong thing.
+let CHAIN_STATE = null;
+const COST_ABI = [
+  { type: 'function', name: 'getAtomCost', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'getTripleCost', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'getBondingCurveConfig', stateMutability: 'view', inputs: [],
+    outputs: [{ type: 'tuple', components: [{ type: 'address', name: 'registry' }, { type: 'uint256', name: 'defaultCurveId' }] }] },
+];
+async function refreshChainState() {
+  try {
+    const s = await loadSdk();
+    const pub = pubClient(s);
+    const [atomCost, tripleCost, curve] = await Promise.all([
+      pub.readContract({ address: NET.multivault, abi: COST_ABI, functionName: 'getAtomCost' }),
+      pub.readContract({ address: NET.multivault, abi: COST_ABI, functionName: 'getTripleCost' }),
+      pub.readContract({ address: NET.multivault, abi: COST_ABI, functionName: 'getBondingCurveConfig' }),
+    ]);
+    CHAIN_STATE = { atomCost, tripleCost, curveId: curve[1] };
+  } catch (e) { /* non-fatal: the simulation falls back to the documented OPS defaults */ }
+}
+function opValue(op) {
+  if (CHAIN_STATE) {
+    if (op === 'createAtoms') return CHAIN_STATE.atomCost;
+    if (op === 'createTriples') return CHAIN_STATE.tripleCost;
+  }
+  return OPS[op].value;
+}
+
 // ============================== 1. delegation ==============================
 $('fileInput').addEventListener('change', async e => {
   const f = e.target.files[0]; if (!f) return;
@@ -273,19 +371,21 @@ function loadFromTextarea() {
 async function buildFresh() {
   try {
     const s = await loadSdk();
-    const env = s.getSmartAccountsEnvironment(CHAIN_ID);
+    const env = s.getSmartAccountsEnvironment(NET.chainId);
     const cb = s.createCaveatBuilder(env);
     cb.addCaveat('limitedCalls', { limit: 100 });
+    const { predicted } = await predictHybrid();
+    predictedHybrid = predicted;
     const d = s.createDelegation({
-      to: AGENT, from: HYBRID, environment: env,
+      to: AGENT, from: predicted, environment: env,
       salt: '0x' + (BigInt(Date.now()) * 1000n).toString(16).padStart(64, '0'),
-      scope: { type: s.ScopeType.FunctionCall, targets: [MULTIVAULT],
+      scope: { type: s.ScopeType.FunctionCall, targets: [NET.multivault],
                selectors: ENABLED_OPS.map(k => OPS[k].sig),
                valueLte: { maxValue: UINT256_MAX } },   // scope default is 0 — must be set HERE
       caveats: cb
     });
-    loadText(JSON.stringify({ network: 'testnet', chainId: CHAIN_ID, delegation: d }, null, 2),
-             'Built a fresh testnet delegation with the SDK.');
+    loadText(JSON.stringify({ network: NET.name, chainId: NET.chainId, delegation: d }, null, 2),
+             'Built a fresh ' + NET.name + ' delegation with the SDK.');
   } catch (e) { setStatus('loadStatus', 'Build failed: ' + (e.shortMessage || e.message), 'error'); showFatal('buildFresh', e.message); }
 }
 async function checkCaveats() {
@@ -344,7 +444,7 @@ async function predictHybrid() {
   const cc = creationCode(s);
   const hash = s.keccak256(cc);
   const addr = await pubClient(s).readContract({
-    address: FACTORY,
+    address: NET.factory,
     abi: [{ type: 'function', name: 'computeAddress', stateMutability: 'view',
             inputs: [{ type: 'bytes32' }, { type: 'bytes32' }], outputs: [{ type: 'address' }] }],
     args: [hash, DEPLOY_SALT] });
@@ -368,7 +468,7 @@ async function deployHybrid() {
               inputs: [{ type: 'bytes' }, { type: 'bytes32' }], outputs: [{ type: 'address' }] }],
       functionName: 'deploy', args: [cc, DEPLOY_SALT] });
     setStatus('setupStatus', 'Approve the MetaMask popup to deploy…', 'warn');
-    const h = await wc.sendTransaction({ to: FACTORY, data, chain, account: OWNER_EOA });
+    const h = await wc.sendTransaction({ to: NET.factory, data, chain, account: OWNER_EOA });
     const r = await pub.waitForTransactionReceipt({ hash: h });
     if (r.status !== 'success') return setStatus('setupStatus', 'Deploy FAILED', 'error');
     $('hybridDisplay').textContent = predicted;
@@ -376,6 +476,7 @@ async function deployHybrid() {
   } catch (e) { setStatus('setupStatus', 'Deploy failed: ' + (e.shortMessage || e.message), 'error'); showFatal('deploy', e.message); }
 }
 async function approveHybrid() {
+  if (!predictedHybrid) return setStatus('setupStatus', 'Predicting the Hybrid address failed — check the network and owner.', 'error');
   try {
     const s = await loadSdk();
     const wc = s.createWalletClient({ account: OWNER_EOA, chain, transport: s.custom(window.ethereum) });
@@ -384,24 +485,25 @@ async function approveHybrid() {
     const data = s.encodeFunctionData({
       abi: [{ type: 'function', name: 'approve', stateMutability: 'nonpayable',
               inputs: [{ type: 'address' }, { type: 'uint8' }], outputs: [] }],
-      functionName: 'approve', args: [HYBRID, APPROVE_DEPOSIT_REDEMPTION] });
+      functionName: 'approve', args: [predictedHybrid, APPROVE_DEPOSIT_REDEMPTION] });
     setStatus('setupStatus', 'Approve popup…', 'warn');
-    const h = await wc.sendTransaction({ to: MULTIVAULT, data, chain, account: OWNER_EOA });
+    const h = await wc.sendTransaction({ to: NET.multivault, data, chain, account: OWNER_EOA });
     const r = await pubClient(s).waitForTransactionReceipt({ hash: h });
     setStatus('setupStatus', r.status === 'success'
-      ? 'MultiVault: ' + HYBRID + ' approved for DEPOSIT | REDEMPTION (type 3)' : 'Approve FAILED', r.status === 'success' ? 'success' : 'error');
+      ? 'MultiVault: ' + predictedHybrid + ' approved for DEPOSIT | REDEMPTION (type 3)' : 'Approve FAILED', r.status === 'success' ? 'success' : 'error');
   } catch (e) { setStatus('setupStatus', 'Approve failed: ' + (e.shortMessage || e.message), 'error'); showFatal('approve', e.message); }
 }
 async function fundHybrid() {
-  const amt = prompt('Send how much tTRUST to the Hybrid?', '0.01');
+  if (!predictedHybrid) return setStatus('setupStatus', 'Predicting the Hybrid address failed — check the network and owner.', 'error');
+  const amt = prompt('Send how much TRUST to the Hybrid?', '0.01');
   if (!amt) return;
   try {
     const s = await loadSdk();
     const wc = s.createWalletClient({ account: OWNER_EOA, chain, transport: s.custom(window.ethereum) });
     setStatus('setupStatus', 'Send popup…', 'warn');
-    const h = await wc.sendTransaction({ to: HYBRID, value: BigInt(amt) * 10n ** 18n, chain, account: OWNER_EOA });
+    const h = await wc.sendTransaction({ to: predictedHybrid, value: BigInt(amt) * 10n ** 18n, chain, account: OWNER_EOA });
     const r = await pubClient(s).waitForTransactionReceipt({ hash: h });
-    setStatus('setupStatus', r.status === 'success' ? 'Funded ' + amt + ' tTRUST' : 'Fund FAILED', r.status === 'success' ? 'success' : 'error');
+    setStatus('setupStatus', r.status === 'success' ? 'Funded ' + amt + ' TRUST' : 'Fund FAILED', r.status === 'success' ? 'success' : 'error');
   } catch (e) { setStatus('setupStatus', 'Fund failed: ' + (e.shortMessage || e.message), 'error'); }
 }
 
@@ -416,8 +518,8 @@ async function connectWallet() {
     await window.ethereum.request({ method: 'eth_requestAccounts' });
     const a = await window.ethereum.request({ method: 'eth_accounts' });
     const cid = parseInt(await window.ethereum.request({ method: 'eth_chainId' }), 16);
-    $('chainLine').textContent = a[0] + ' on ' + cid + (cid === CHAIN_ID ? ' ✓' : ' ✗ WRONG — switch to ' + CHAIN_NAME);
-    say('Connected: ' + a[0], cid === CHAIN_ID ? 'success' : 'error');
+    $('chainLine').textContent = a[0] + ' on ' + cid + (cid === NET.chainId ? ' ✓' : ' ✗ WRONG — switch to ' + NET.name);
+    say('Connected: ' + a[0], cid === NET.chainId ? 'success' : 'error');
   } catch (e) { say(e.message, 'error'); }
 }
 const DTUPLE = [{ type: 'tuple', components: [
@@ -448,7 +550,7 @@ async function signDelegation() {
   if (!d) return setStatus('signStatus', 'Load a delegation first.', 'error');
   if (!window.ethereum) return setStatus('signStatus', 'No injected wallet.', 'error');
   const cid = parseInt(await window.ethereum.request({ method: 'eth_chainId' }), 16);
-  if (cid !== CHAIN_ID) return setStatus('signStatus', 'Wrong network: chainId ' + cid + ', need ' + CHAIN_ID + '.', 'error');
+  if (cid !== NET.chainId) return setStatus('signStatus', 'Wrong network: chainId ' + cid + ', need ' + NET.chainId + ' (' + NET.name + ').', 'error');
   const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
   const me = accounts[0].toLowerCase();
   if (me === d.delegator.toLowerCase())
@@ -490,11 +592,11 @@ async function verifyOnChain(s, pub, signed) {
     try {
       if (op === 'deposit') inner = s.encodeFunctionData({ abi: [{ type: 'function', name: 'deposit', stateMutability: 'payable', inputs: [{ type: 'address' }, { type: 'bytes32' }, { type: 'uint256' }, { type: 'uint256' }], outputs: [{ type: 'uint256' }] }], functionName: 'deposit', args: [OWNER_EOA, '0x' + '0'.repeat(64), 1n, 0n] });
       else if (op === 'redeem') inner = s.encodeFunctionData({ abi: [{ type: 'function', name: 'redeem', stateMutability: 'payable', inputs: [{ type: 'address' }, { type: 'bytes32' }, { type: 'uint256' }, { type: 'uint256' }, { type: 'uint256' }], outputs: [{ type: 'uint256' }] }], functionName: 'redeem', args: [OWNER_EOA, '0x' + '0'.repeat(64), 1n, 1n, 0n] });
-      else if (op === 'createAtoms') inner = s.encodeFunctionData({ abi: [{ type: 'function', name: 'createAtoms', stateMutability: 'payable', inputs: [{ type: 'bytes[]' }, { type: 'uint256[]' }], outputs: [{ type: 'uint256' }] }], functionName: 'createAtoms', args: [['0x61' + '62'.repeat(31)], [OPS[op].value]] });
-      else inner = s.encodeFunctionData({ abi: [{ type: 'function', name: 'createTriples', stateMutability: 'payable', inputs: [{ type: 'bytes32[]' }, { type: 'bytes32[]' }, { type: 'bytes32[]' }, { type: 'uint256[]' }], outputs: [{ type: 'uint256' }] }], functionName: 'createTriples', args: [['0x' + '00'.repeat(32)], ['0x' + '00'.repeat(32)], ['0x' + '00'.repeat(32)], [OPS[op].value]] });
+      else if (op === 'createAtoms') inner = s.encodeFunctionData({ abi: [{ type: 'function', name: 'createAtoms', stateMutability: 'payable', inputs: [{ type: 'bytes[]' }, { type: 'uint256[]' }], outputs: [{ type: 'uint256' }] }], functionName: 'createAtoms', args: [['0x61' + '62'.repeat(31)], [opValue(op)]] });
+      else inner = s.encodeFunctionData({ abi: [{ type: 'function', name: 'createTriples', stateMutability: 'payable', inputs: [{ type: 'bytes32[]' }, { type: 'bytes32[]' }, { type: 'bytes32[]' }, { type: 'uint256[]' }], outputs: [{ type: 'uint256' }] }], functionName: 'createTriples', args: [['0x' + '00'.repeat(32)], ['0x' + '00'.repeat(32)], ['0x' + '00'.repeat(32)], [opValue(op)]] });
     } catch (e) { out.push('· ' + op + ': encode failed'); continue; }
     try {
-      const exec = s.encodePacked(['address', 'uint256', 'bytes'], [MULTIVAULT, OPS[op].value, inner]);
+      const exec = s.encodePacked(['address', 'uint256', 'bytes'], [NET.multivault, opValue(op), inner]);
       await pub.call({ from: AGENT, to: DM, value: 0n, data: s.encodeFunctionData({ abi: [{ type: 'function', name: 'redeemDelegations', stateMutability: 'nonpayable', inputs: [{ type: 'bytes[]' }, { type: 'bytes32[]' }, { type: 'bytes[]' }], outputs: [{ type: 'bytes[]' }] }], functionName: 'redeemDelegations', args: [[pc], ['0x' + '0'.repeat(63) + '1'], [exec]] }) });
       out.push('✔ ' + op + ' admitted by the enforcers');
     } catch (e) {
@@ -519,7 +621,7 @@ function downloadResult() {
   a.href = URL.createObjectURL(blob); a.download = 'signed-delegation.json'; a.click();
 }
 window.addEventListener('load', async () => {
-  predictHybrid().then(p => { $('predictedAddress').textContent = p.predicted; }).catch(() => {});
+  applyDeployment();   // reads the network/owner/agent controls and predicts the Hybrid address
 });
 </script>
 </body>

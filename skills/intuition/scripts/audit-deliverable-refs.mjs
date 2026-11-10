@@ -47,6 +47,13 @@ export const SHIPPED_TOOLING = [
   'templates/sign-delegation.html',
   'templates/redeem-delegation.cjs',
   'templates/revoke-delegation.cjs',
+  'templates/networks.cjs',
+  'templates/provision-agent-wallet.cjs',
+  'templates/proof-typehash.cjs',
+  'templates/probe-simulate-only.cjs',
+  'templates/probe-value-lte-footgun.mjs',
+  'templates/probe-revoke-via-userop.mjs',
+  'templates/verify-caveat-admission.mjs',
   'scripts/compute-delegation-hash.mjs',
   'scripts/delegation-doc-verification.sh',
   'scripts/audit-deliverable-refs.mjs',
@@ -86,6 +93,7 @@ const PLACEHOLDERS = new Set([
  */
 const EXTERNAL_BY_DESIGN = new Set([
   './.intuition/autonomous-policy.json',   // operator-created policy file
+  '~/.intuition/agent-wallet.json',        // agent delegate key file (mode 0600, never shipped)
   'src/interfaces/IMultiVault.sol',         // upstream path, named in a URL
   'src/interfaces/IMultiVaultCore.sol',     // upstream path, named in a URL
 ]);

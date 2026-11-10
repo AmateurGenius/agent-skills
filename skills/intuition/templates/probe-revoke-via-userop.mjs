@@ -18,24 +18,38 @@
 // that:
 //   * the account ACCEPTED the UserOp (validateUserOp did not reject it), and
 //   * the ONLY missing element is a real signature.
-// If instead it reverts AA23, the account refused the op itself and the route is
-// closed.
+// If instead it reverts AA23, the account refused the op itself.
 //
 // Everything here is eth_call. Nothing is broadcast.
 //
-// Usage: node probe-revoke-via-userop.mjs
+// Nothing deployment-specific is hardcoded: the Hybrid is the delegation's own
+// `delegator`, Main is that Hybrid's on-chain owner(), and the RPC/EntryPoint come
+// from the selected chain (see networks.cjs).
+//
+// Usage: node probe-revoke-via-userop.mjs [signed-delegation.json] [--chain testnet|mainnet]
 
 import { createRequire } from 'module';
 import { execFileSync } from 'child_process';
 import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 const { ethers } = require('ethers');
+const { DELEGATION_MANAGER, ENTRY_POINT, resolveNetwork } = require('./networks.cjs');
 
-const RPC = 'https://testnet.rpc.intuition.systems/http';
-const HYBRID = '0x433d9b2a6993f0cf36d9cce96d5cfe269d69ec14';
-const MAIN = '0x61A20dE84D7E5C422Af323D47497ED3bf43Fa5ee';
-const EP = '0x0000000071727De22E5E9d8BAf0edAc6f37da032';
-const DM = '0xdb9B1e94B5b69Df7e401DDbedE43491141047dB3';
+const args = process.argv.slice(2);
+const opt = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i + 1] : d; };
+const NET = resolveNetwork(opt('chain', 'testnet'));
+const RPC = NET.rpc;
+const EP = ENTRY_POINT;
+const DM = DELEGATION_MANAGER;
+
+const file = args.find(a => !a.startsWith('--')) || path.join(__dirname, 'signed-delegation-final.json');
+const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+const d = raw.delegation || raw;
+const HYBRID = d.delegator;
+const AGENT = d.delegate;
 
 const TUPLE = '(address sender,uint256 nonce,bytes initCode,bytes callData,bytes32 accountGasLimits,uint256 preVerificationGas,bytes32 gasFees,bytes paymasterAndData,bytes signature)';
 // accountGasLimits = verificationGasLimit(HIGH 128) | callGasLimit(LOW 128).
@@ -46,9 +60,11 @@ const gasLimits = (ver, call) => ethers.concat([
   ethers.zeroPadValue(ethers.toBeHex(BigInt(call)), 16),
 ]);
 
+const provider = new ethers.JsonRpcProvider(RPC);
+const MAIN = await new ethers.Contract(HYBRID, ['function owner() view returns (address)'], provider).owner();
+const nonce = await new ethers.Contract(HYBRID, ['function getNonce(uint192) view returns (uint256)'], provider).getNonce(0n);
+
 // ── the inner revoke call, wrapped so the Hybrid is msg.sender ───────────────
-const raw = JSON.parse(fs.readFileSync('./signed-delegation-final.json', 'utf8'));
-const d = raw.delegation || raw;
 const dis = new ethers.Interface([
   'function disableDelegation((address,address,bytes32,(address,bytes,bytes)[],uint256,bytes))',
 ]);
@@ -64,7 +80,7 @@ const callData = ex.encodeFunctionData('execute', [{ target: DM, value: 0, callD
 
 const op = {
   sender: HYBRID,
-  nonce: 0n,
+  nonce,
   initCode: '0x',
   callData,
   accountGasLimits: gasLimits(1_000_000, 400_000),
@@ -96,7 +112,7 @@ const errIface = new ethers.Interface([
   'error FailedOpWithRevert(uint256 opCode,string reason,bytes inner)',
 ]);
 
-console.log('=== the UserOp that would revoke (dummy signature, read-only) ===\n');
+console.log(`=== the UserOp that would revoke (dummy signature, read-only) | ${NET.name} (${NET.chainId}) ===\n`);
 console.log('  sender   ', op.sender, ' (the Hybrid == the delegator)');
 console.log('  nonce    ', op.nonce.toString());
 console.log('  callData ', op.callData.slice(0, 10), '= execute((DelegationManager, 0, disableDelegation(...)))');
@@ -146,7 +162,7 @@ console.log('=== to actually settle it: what Main must sign ===\n');
 const hybridC = new ethers.Contract(HYBRID, [
   'function getPackedUserOperationTypedDataHash(' + TUPLE + ') view returns (bytes32)',
   'function eip712Domain() view returns (bytes1,string,string,uint256,bytes32)',
-], new ethers.JsonRpcProvider(RPC));
+], provider);
 const digest = await hybridC.getPackedUserOperationTypedDataHash(op);
 const dom = await hybridC.eip712Domain();
 console.log('  domain : { name:', JSON.stringify(dom[1]) + ', version:', JSON.stringify(dom[2]) + ',');

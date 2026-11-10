@@ -26,6 +26,17 @@ node templates/revoke-delegation.cjs templates/signed-delegation-final.json --si
 node templates/revoke-delegation.cjs templates/signed-delegation-final.json --serve
 ```
 
+**Options:**
+
+| Flag | Effect |
+|---|---|
+| `--chain testnet\|mainnet` | Target chain (default `testnet`). Switching also switches the RPC and MultiVault. |
+| `--term 0x<termId>` | After a successful revoke, simulate a deposit into that vault to prove redemption is now blocked. Skipped when omitted. |
+
+Nothing deployment-specific is hardcoded: the Hybrid is the delegation's own `delegator`,
+Main is the Hybrid's on-chain `owner()`, the agent is the delegation's `delegate`, and the
+MultiVault comes from the selected chain.
+
 ### The one-shot page (the standard flow)
 
 `--serve` starts a short-lived server on `http://127.0.0.1:3847` with two steps:
@@ -138,7 +149,7 @@ execute((address,uint256,bytes)) from owner -> REVERT 0xd663742a = NotEntryPoint
 ```
 
 There is **no** 4-arg authorized-execute in the verified ABI at all
-(`execute((address,uint256,bytes,bytes))` = `0x451a404d` is not present, and
+(`execute((address,uint256,bytes,bytes))` = `0xda0980c7` is not present, and
 probing it returns an empty `0x` identical to a genuinely absent function).
 The owner has no direct execute path. **This part of the original finding
 survives** — for a reason I had not actually checked.
@@ -290,6 +301,43 @@ cast code $DM --rpc-url $RPC | grep -i 49934047   # present on both chains
 
 ---
 
+## Proven end-to-end (2026-11-10) — create → write as delegate → revoke → blocked
+
+The mission acceptance chain, run on testnet 13579 with the refactored tooling.
+
+```
+delegation   : hash 0xe71503120990003ebb375c1f1f1b3a410096ee61a3c0679a6cccbec4d3f57fc3
+               signed in the browser by owner 0x61A20dE8… (Hybrid 0x433d9B2A… is the delegator)
+               compute-delegation-hash.mjs: valid true, disabled false, erc1271 0x1626ba7e
+
+1. create-atom: tx 0x3aa6195e5ad2fef3c995d29ba059bcf660a1afc3f576861fea63bd492e11d551
+               block 9378416   atomId 0x9fb8c427adc149d9965ad1a8ac069a1790f8fbca89d26a7aec4026d572a0aa21
+               data caip10:eip155:13579:0xe9BfdEC6…   (isTermCreated true, vaultType 0)
+
+2. deposit     : tx 0xfdcd35e11a9051f0bc38a3bac3ab2c47565ca982ba3bdea5360abb5402d89a2d
+               block 9378417   0.001 tTRUST into the new atom vault
+               getShares(Main, atomId, 1) = 980000000000000   (preview said 980000000000000)
+
+3. revoke      : tx 0xd6e6afbe2ab40394def52c299c1fd2f7f0da38dc71618cd7926b7a4fa489ce24
+               block 9378419   status 1   gas 150,535
+               UserOp digest 0xd0433bb97f01e554e080c009635a7a058da6245118480ab4fba5a72ff148dacc
+               owner sig 0x33b091d0…1c  recovered 0x61A20dE8… == Hybrid owner
+
+4. blocked     : redemption now returns decision "reject",
+               reason "CannotUseADisabledDelegation", revocation.disabled true
+```
+
+Independently re-verified after the fact, not read from the script's own report:
+
+| Check | Result |
+|---|---|
+| `disabledDelegations(0xe7150312…)` on the DelegationManager | **`true`** |
+| `Hybrid.getNonce(0)` | **`2`** (was 1 — the UserOp was consumed) |
+| `cast receipt 0xd6e6afbe…` | status 1 |
+| `isTermCreated(0x9fb8c427…)` | `true` |
+| `getShares(0x61A20dE8…, 0x9fb8c427…, 1)` | `980000000000000` |
+| redemption of the revoked delegation | **reverts `CannotUseADisabledDelegation`** |
+
 ---
 
 ## Proven on-chain (2026-10-02) — the full lifecycle
@@ -341,7 +389,7 @@ Both were caught against the deployed contract, not assumed.
 
 ```bash
 cast sig "execute((address,uint256,bytes))"        # → 0x5c1c6dcd   ← this one
-cast sig "execute(address,uint256,bytes,bytes)"   # → 0x451a404d   ← NOT on this contract
+cast sig "execute(address,uint256,bytes,bytes)"   # → 0xda0980c7   ← NOT on this contract
 ```
 
 There is **no 4-arg `execute`** in the deployed ABI, so

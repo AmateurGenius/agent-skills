@@ -29,30 +29,32 @@ cast code $MULTIVAULT --rpc-url $RPC
 
 Delegation Framework Contract Addresses
 
-The Intuition Protocol uses the MetaMask Delegation Framework for ERC-7710 delegation. These contracts are deployed via deterministic CREATE2 with a fixed "GATOR" salt. Addresses are identical across all chains.
+The Intuition Protocol uses the MetaMask Delegation Framework for ERC-7710 delegation. These contracts are deployed via deterministic CREATE2 with a fixed "GATOR" salt. Addresses are identical across all chains unless a row says otherwise.
 
-Contract Mainnet (1155) Testnet (13579) Notes
-DelegationManager 0xdb9B1e94B5b69Df7e401DDbedE43491141047dB3 0xdb9B1e94B5b69Df7e401DDbedE43491141047dB3 MetaMask Delegation Framework. Exposes getDelegationHash and getDomainHash on-chain (verified). Does NOT expose domainSeparator, isValidDelegation, or hashTypedData.
-EIP7702 DeleGator Impl 0x63c0c19a282a1B52b07dD5a65b58948A07DAE32B 0x63c0c19a282a1B52b07dD5a65b58948A07DAE32B Confirmed labeled on block explorers. Designator pattern: 0xef0100 + this address.
-AllowedMethodsEnforcer 0x2c21fD0Cb9DC8445CB3fb0DC5E7Bb0Aca01842B5 0x2c21fD0Cb9DC8445CB3fb0DC5E7Bb0Aca01842B5 Restricts which function selectors the delegate can call. From delegation-core 3.0.0 / V3 (verified 2026-10-03).
-LimitedCallsEnforcer 0x04658B29F6b82ed55274221a06Fc97D318E25416 0x04658B29F6b82ed55274221a06Fc97D318E25416 Caps total number of redemption calls. Stateful counter tracked by the DelegationManager.
-SimpleFactory | 0x69Aa2f9fe1572F1B640E1bbc512f5c3a734fc77c | 0x54c68ad35b082546a1e2e3e1a7542Ce9d3A2e756 | **Chain-specific — verified 2026-10-03.** `0x69Aa2f9f…` (751B) is live on BOTH chains; `0x54c68ad3…` (751B) is live on 13579 ONLY and has ZERO code on 1155. They are different contracts returning different CREATE2 addresses for the same initCode: `0x69Aa…` → `0x99D9ca38…`, `0x54c6…` → `0xFEc573E3…`. Use `0x69Aa2f9f…` on mainnet. |
-HybridDeleGatorImpl | 0x48dbe696a4d990079e039489ba2053b36e8ffec4 | 0x48dbe696a4d990079e039489ba2053b36e8ffec4 | Delegation logic (20203B). The Hybrid account itself is a per-deployment ERC-1967 proxy pointing here. |
-EntryPoint (ERC-4337 v0.7) | 0x0000000071727De22E5E9d8BAf0edAc6f37da032 | 0x0000000071727De22E5E9d8BAf0edAc6f37da032 | Canonical v0.7 EntryPoint (16035B), live on both. `handleOps` is permissionless — no bundler required. Needed for revocation (see `operations/revoke-delegation.md`). |
+| Contract | Mainnet (1155) | Testnet (13579) | Notes |
+|---|---|---|---|
+| DelegationManager | `0xdb9B1e94B5b69Df7e401DDbedE43491141047dB3` | `0xdb9B1e94B5b69Df7e401DDbedE43491141047dB3` | MetaMask Delegation Framework. Exposes `getDelegationHash` and `getDomainHash` on-chain (verified). Does NOT expose `domainSeparator`, `isValidDelegation`, or `hashTypedData`. |
+| EIP7702 DeleGator Impl | `0x63c0c19a282a1B52b07dD5a65b58948A07DAE32B` | `0x63c0c19a282a1B52b07dD5a65b58948A07DAE32B` | Confirmed labeled on block explorers. Designator pattern: `0xef0100` + this address. |
+| AllowedMethodsEnforcer | `0x2c21fD0Cb9DC8445CB3fb0DC5E7Bb0Aca01842B5` | `0x2c21fD0Cb9DC8445CB3fb0DC5E7Bb0Aca01842B5` | Restricts which function selectors the delegate can call. From delegation-core 3.0.0 / V3 (verified 2026-10-03). |
+| LimitedCallsEnforcer | `0x04658B29F6b82ed55274221a06Fc97D318E25416` | `0x04658B29F6b82ed55274221a06Fc97D318E25416` | Caps total number of redemption calls. Stateful counter tracked by the DelegationManager. |
+| SimpleFactory | `0x69Aa2f9fe1572F1B640E1bbc512f5c3a734fc77c` | `0x54c68ad35b082546a1e2e3e1a7542Ce9d3A2e756` | **Chain-specific — verified 2026-10-03.** `0x69Aa2f9f…` (752B) is live on BOTH chains; `0x54c68ad3…` (752B) is live on 13579 ONLY and has ZERO code on 1155. They are different contracts returning different CREATE2 addresses for the same initCode: `0x69Aa…` → `0x99D9ca38…`, `0x54c6…` → `0xFEc573E3…`. Use `0x69Aa2f9f…` on mainnet. |
+| HybridDeleGatorImpl | `0x48dbe696a4d990079e039489ba2053b36e8ffec4` | `0x48dbe696a4d990079e039489ba2053b36e8ffec4` | Delegation logic (20204B). The Hybrid account itself is a per-deployment ERC-1967 proxy pointing here. |
+| EntryPoint (ERC-4337 v0.7) | `0x0000000071727De22E5E9d8BAf0edAc6f37da032` | `0x0000000071727De22E5E9d8BAf0edAc6f37da032` | Canonical v0.7 EntryPoint (16036B), live on both. `handleOps` is permissionless — no bundler required. Needed for revocation (see `operations/revoke-delegation.md`). |
 
 ---
 
 Enforcer Quick Reference
 
-Enforcer What It Restricts Terms Encoding Args
-AllowedMethodsEnforcer Function selector allowlist raw concatenated bytes4 selectors 0x
-LimitedCallsEnforcer Total redemption call count abi.encode(uint256 maxCalls) 0x
-ValueLteEnforcer Native value cap abi.encode(uint256 maxWad) 0x
+| Enforcer | What It Restricts | Terms Encoding | Args |
+|---|---|---|---|
+| AllowedMethodsEnforcer | Function selector allowlist | raw concatenated bytes4 selectors | `0x` |
+| LimitedCallsEnforcer | Total redemption call count | `abi.encode(uint256 maxCalls)` | `0x` |
+| ValueLteEnforcer | Native value cap | `abi.encode(uint256 maxWad)` | `0x` |
 
 Important Notes:
 
-· **Value caps ARE enforced** by `ValueLteEnforcer` `0x92bf1232…` (1272B, live on BOTH chains, verified 2026-10-03). Only the historical `NativeTokenTransferAmountEnforcer` `0xA9BC5458…` is absent (zero code on both chains) — do not use it. Enforce native-value caps off-chain in the agent (self-enforced budget) — there is no built-in native-token transfer-amount enforcer in this deployment. Periodic rate-limiting (e.g., "100 TRUST/day") is likewise unavailable as a built-in; agents may self-enforce daily budgets.
-· LimitedCallsEnforcer enforces call count against a counter stored in the DelegationManager. The agent does not need to track this manually — the contract reverts if the limit is exceeded. However, the agent should check the remaining allowance before attempting redemption to avoid unnecessary gas costs.
+- **Value caps ARE enforced** by `ValueLteEnforcer` `0x92bf1232…` (1273B, live on BOTH chains, verified 2026-10-03). Only the historical `NativeTokenTransferAmountEnforcer` `0xA9BC5458…` is absent (zero code on both chains) — do not use it. Enforce native-value caps off-chain in the agent (self-enforced budget) — there is no built-in native-token transfer-amount enforcer in this deployment. Periodic rate-limiting (e.g., "100 TRUST/day") is likewise unavailable as a built-in; agents may self-enforce daily budgets.
+- LimitedCallsEnforcer enforces call count against a counter stored in the DelegationManager. The agent does not need to track this manually — the contract reverts if the limit is exceeded. However, the agent should check the remaining allowance before attempting redemption to avoid unnecessary gas costs.
 
 ---
 
@@ -60,11 +62,12 @@ DelegationManager Interface Limitations
 
 Critical: The DelegationManager deployed on Intuition L3 does not expose the following functions that are commonly assumed for ERC-7710:
 
-Function Status
-domainSeparator() ❌ Does NOT exist
-isValidDelegation(...) ❌ Does NOT exist
-hashTypedData(...) ❌ Does NOT exist
-revokeDelegation(bytes32) ❌ Does NOT exist
+| Function | Status |
+|---|---|
+| `domainSeparator()` | ❌ Does NOT exist |
+| `isValidDelegation(...)` | ❌ Does NOT exist |
+| `hashTypedData(...)` | ❌ Does NOT exist |
+| `revokeDelegation(bytes32)` | ❌ Does NOT exist |
 Available Functions:
 
 | Function | Purpose |
@@ -77,7 +80,7 @@ Available Functions:
 
 Action Items:
 
-1. Always compute the EIP-712 digest from on-chain reads — `getDelegationHash()` + `getDomainHash()` (see operations/create-delegation.md → Step 5c). Do NOT use `@metamask/smart-accounts-kit` or off-line/off-chain struct hashing — both mismatch the contract's Caveat[] encoding.
+1. Always compute the EIP-712 digest from on-chain reads — `getDelegationHash()` + `getDomainHash()` (see `operations/create-delegation.md` → Step 3). Do NOT hand-roll the struct hash off-chain: the DelegationManager packs `Caveat[]` non-standardly, so any local reimplementation is a guess. The `@metamask/smart-accounts-kit` path is the canonical **build and sign** path (it produces signatures the contract accepts); the on-chain reads are how you **verify** one.
 2. Fixed EIP-712 domain. Use the fixed domain:
    ```typescript
    const domain = {
@@ -88,16 +91,17 @@ Action Items:
    }
    ```
 3. Revocation uses the full struct. Call `disableDelegation(delegation)` where delegation is the complete signed Delegation object.
-4. Revocation check uses `disabledDelegations(bytes32)`. Pass `keccak256(abi.encode(delegation_struct))` as the argument. Do NOT pass the raw struct bytes.
+4. Revocation check uses `disabledDelegations(bytes32)`. Pass the value returned by `getDelegationHash(delegation)` — the contract's own hash. Do NOT pass `keccak256(abi.encode(delegation_struct))`; that is a different value and reads `false` for a delegation that is actually revoked.
 
 ---
 
 Native Token and Bridge
 
- Mainnet Testnet
-Symbol $TRUST tTRUST
-Decimals 18 18
-Bridge URL https://app.intuition.systems/bridge https://app.intuition.systems/bridge
+| | Mainnet | Testnet |
+|---|---|---|
+| Symbol | $TRUST | tTRUST |
+| Decimals | 18 | 18 |
+| Bridge URL | https://app.intuition.systems/bridge | https://app.intuition.systems/bridge |
 
 parseEther('0.5') works for formatting TRUST amounts (same 18-decimal math). The unit is TRUST, not ETH.
 
@@ -209,7 +213,7 @@ const delegationAbi = parseAbi([
 ```
 
 Remember:
-· `disabledDelegations(bytes32)` → ✅ Exists (pass `keccak256(abi.encode(delegation_struct))`)
-· `disableDelegation(Delegation)` → ✅ Exists (pass the full struct)
-· `enableDelegation(Delegation)` → ✅ Exists (pass the full struct)
-· `getDelegationHash(Delegation)` → ✅ Exists (pass the full struct, returns bytes32)
+- `disabledDelegations(bytes32)` → ✅ Exists (pass `getDelegationHash(delegation)`)
+- `disableDelegation(Delegation)` → ✅ Exists (pass the full struct)
+- `enableDelegation(Delegation)` → ✅ Exists (pass the full struct)
+- `getDelegationHash(Delegation)` → ✅ Exists (pass the full struct, returns bytes32)

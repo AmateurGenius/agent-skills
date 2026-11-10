@@ -42,6 +42,18 @@ DOMAIN_T="0x0b7c642afd2411ce211542a0e154e558e357f3b7f4738eb327ae086bfc659f15"
 DOMAIN_M="0x44653bfc83c7c3f4ecd0ab2d76a7aff5e3478def6f0a290d939437b65d6fe1d5"
 ROOT_AUTHORITY="0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
 
+# ── dependency preflight ──────────────────────────────────────────────────────
+# A missing node_modules must never be reported as "the docs disagree with the
+# chain". templates/package.json is the skill's single dependency manifest.
+if ! node -e "require.resolve('ethers', { paths: ['$SKILL/templates'] })" >/dev/null 2>&1; then
+  echo "──────────────────────────────────────────────────────────────────"
+  echo "SETUP ERROR — template dependencies are not installed."
+  echo "    Fix: cd \"$SKILL/templates\" && npm install"
+  echo "    Needed by templates/*.cjs, templates/proof-typehash.cjs and"
+  echo "    scripts/compute-delegation-hash.mjs."
+  exit 3
+fi
+
 # ── (f) selector recomputation table ───────────────────────────────────────────
 # format: documented_selector|canonical_signature
 # Every one of these is cited in reference/delegation.md,
@@ -279,7 +291,11 @@ node "$SKILL/templates/proof-typehash.cjs" || FAIL=1
 
 echo "──────────────────────────────────────────────────────────────────"
 if [ "$FAIL" -ne 0 ]; then
-  echo "RESULT: FAIL — on-chain evidence disagrees with the docs. See markers above."
+  echo "RESULT: FAIL — read the markers above before touching the docs."
+  echo "        A DRIFT / empty-contract / hash-mismatch marker means the docs"
+  echo "        disagree with the chain. Any other marker is a tool or setup"
+  echo "        error: fix that first, then re-run. Do not edit docs to satisfy"
+  echo "        a failure that is not doc drift."
   exit 1
 fi
 echo "RESULT: PASS — selectors present; domainHash pinned; all cited addresses live; ROOT_AUTHORITY=***; Caveat type=2-field; proof signature validates (ERC-1271 MAGIC 1626ba7e)."

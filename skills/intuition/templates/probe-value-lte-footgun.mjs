@@ -12,21 +12,56 @@
 //
 // READ-ONLY: eth_call only. It cannot broadcast, move funds, or change state.
 //
-// Usage (from templates/): node probe-value-lte-footgun.mjs [signed-delegation.json]
+// Nothing deployment-specific is hardcoded: the Hybrid is the delegation's own
+// `delegator`, Main is the Hybrid's on-chain owner(), the agent is the delegation's
+// `delegate`, and the MultiVault comes from the selected chain.
+//
+// Usage (from templates/):
+//   node probe-value-lte-footgun.mjs [signed-delegation.json] --term 0x<termId> [--chain testnet|mainnet]
 
 import { readFileSync } from 'fs';
 import { createRequire } from 'module';
+import path from 'path';
+import { fileURLToPath } from 'url';
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ethers = (await import('ethers')).default ?? (await import('ethers'));
 const req = createRequire(import.meta.url);
 const core = req('./node_modules/@metamask/delegation-core/dist/index.cjs');
+const { DELEGATION_MANAGER, resolveNetwork } = req('./networks.cjs');
 const fs = await import('fs');
 
-const DM   = '0xdb9B1e94B5b69Df7e401DDbedE43491141047dB3';
-const MV    = '0x2Ece8D4dEdcB9918A398528f3fa4688b1d2CAB91';
-const MAIN  = '0x61A20dE84D7E5C422Af323D47497ED3bf43Fa5ee';
-const AGENT = '0xe9BfdEC6Fa795a24e3069292248d9d16570E050d';
+const args = process.argv.slice(2);
+const opt = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i + 1] : d; };
+// Positional args only — an option's VALUE must not be mistaken for a filename.
+const VALUE_OPTS = ['--chain', '--term', '--rpc'];
+const positionals = [];
+for (let i = 0; i < args.length; i++) {
+  const a = args[i];
+  if (a.startsWith('--')) { if (VALUE_OPTS.includes(a)) i++; continue; }
+  positionals.push(a);
+}
+const NET = resolveNetwork(opt('chain', 'testnet'));
+
+const termOpt = opt('term', null);
+if (!termOpt) {
+  console.error('--term 0x<termId> is required: the probe deposits into a real vault, and a');
+  console.error('hardcoded term would be wrong on the other network. Pass any existing vault.');
+  process.exit(2);
+}
+const T = termOpt.replace(/^0x/, '').toLowerCase();
+if (T.length !== 64) { console.error('--term must be 32 bytes of hex'); process.exit(2); }
+
+const file = positionals[0] || path.join(__dirname, 'signed-delegation-final.json');
+const DM = DELEGATION_MANAGER;
+const provider = new ethers.JsonRpcProvider(NET.rpc);
+const MULTIVAULT = NET.multivault;
 const VALUE_LTE_ENFORCER = '0x92bf12322527caa612fd31a0e810472bbb106a8f';
-const provider = new ethers.JsonRpcProvider('https://testnet.rpc.intuition.systems/http');
+
+const base = JSON.parse(fs.readFileSync(file, 'utf8'));
+const d0 = base.delegation || base;
+const HYBRID = d0.delegator;
+const AGENT = d0.delegate;
+const MAIN = await new ethers.Contract(HYBRID, ['function owner() view returns (address)'], provider).owner();
 
 function encodeBytesArray(elements) {
   const N = elements.length;
@@ -41,11 +76,9 @@ function encodeBytesArray(elements) {
   return head + tail;
 }
 
-// Known-good triple used by the fixture.
-const T = '88c64e37687bf17f7bc1fbc449ea700910cf7e80a92ab4d0fa3ae9d9eb15ae65';
 const value = ethers.parseEther('0.001');
 const inner = '2fb1d270' + MAIN.toLowerCase().replace('0x', '').padStart(64, '0') + T.padStart(64, '0') + '1'.padStart(64, '0') + '0'.repeat(64);
-const execution = MV.toLowerCase().replace('0x', '') + value.toString(16).padStart(64, '0') + inner;
+const execution = MULTIVAULT.toLowerCase().replace('0x', '') + value.toString(16).padStart(64, '0') + inner;
 
 function calldataFor(d) {
   const pc = core.encodeDelegations([d]);
@@ -69,11 +102,10 @@ async function sim(d, label) {
   }
 }
 
-const file = process.argv[2] || './signed-delegation-final.json';
-const base = JSON.parse(fs.readFileSync(file, 'utf8'));
 const variant = JSON.parse(JSON.stringify(base));
 const cav = variant.caveats.find(c => c.enforcer.toLowerCase() === VALUE_LTE_ENFORCER);
 if (!cav) { console.error('fixture has no ValueLte caveat — cannot run the falsifier'); process.exit(2); }
+console.log(`chain ${NET.name} (${NET.chainId}) | Hybrid ${HYBRID} | agent ${AGENT} | main ${MAIN}`);
 console.log('fixture ValueLte terms:', cav.terms);
 console.log('');
 

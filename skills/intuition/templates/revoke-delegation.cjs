@@ -30,7 +30,7 @@
 //
 // USAGE
 //   # 1. prepare — build the UserOp, print the exact digest Main must sign
-//   node templates/revoke-delegation.cjs <signed-delegation.json>
+//   node templates/revoke-delegation.cjs <signed-delegation.json> [--chain testnet|mainnet]
 //
 //   # 2. simulate with the signature pasted back in (default; broadcasts nothing)
 //   node templates/revoke-delegation.cjs <signed-delegation.json> --sig 0x<65bytes>
@@ -40,19 +40,22 @@
 //
 //   # optional: one-shot local signing page instead of copying a signature
 //   node templates/revoke-delegation.cjs <signed-delegation.json> --serve
+//
+//   # optional: prove the revoke bites by redeeming into a real vault afterwards
+//   node templates/revoke-delegation.cjs <signed-delegation.json> --term 0x<termId>
+//
+// Nothing deployment-specific is hardcoded: the Hybrid comes from the delegation's own
+// `delegator`, Main from the Hybrid's on-chain `owner()`, the agent from the delegation's
+// `delegate` field, and the MultiVault from the selected chain.
 
 const ethers = require('ethers');
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
+const { DELEGATION_MANAGER, ENTRY_POINT, resolveNetwork } = require('./networks.cjs');
 
-const RPC = process.env.RPC || 'https://testnet.rpc.intuition.systems/http';
-const CHAIN_ID = 13579;
-const HYBRID = '0x433d9b2a6993f0cf36d9cce96d5cfe269d69ec14';
-const MAIN = '0x61A20dE84D7E5C422Af323D47497ED3bf43Fa5ee';
-const EP = '0x0000000071727De22E5E9d8BAf0edAc6f37da032';   // canonical ERC-4337 v0.7
-const DM = '0xdb9B1e94B5b69Df7e401DDbedE43491141047dB3';
-const AGENT = '0xe9BfdEC6Fa795a24e3069292248d9d16570E050d';
+const EP = ENTRY_POINT;   // canonical ERC-4337 v0.7, same address on both chains
+const DM = DELEGATION_MANAGER;
 const PORT = 3847;
 // EntryPoint prefund deposit. Computed once at module scope so both the prepare
 // step and the rendered page use the same value.
@@ -64,12 +67,22 @@ const TUPLE = '(address sender,uint256 nonce,bytes initCode,bytes callData,bytes
 
 // ── args ──────────────────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
-const file = args.find(a => !a.startsWith('--'));
+// Positional args only — an option's VALUE must not be mistaken for a filename.
+const VALUE_OPTS = ['--chain', '--sig', '--term'];
+const __positionals = [];
+for (let __i = 0; __i < args.length; __i++) {
+  const __a = args[__i];
+  if (__a.startsWith('--')) { if (VALUE_OPTS.includes(__a)) __i++; continue; }
+  __positionals.push(__a);
+}
+const file = __positionals[0];
 const flag = n => args.includes('--' + n);
 const opt = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i + 1] : d; };
 const broadcast = flag('broadcast');
-const serve = flag('serve');
-const SIG = opt('sig', null);
+// `serve` and `SIG` are mutable: --serve re-enters main() after the page posts the
+// signature back, and that second run must see the signature and must NOT serve again.
+let serve = flag('serve');
+let SIG = opt('sig', null);
 
 if (!file) {
   console.error('Usage: node templates/revoke-delegation.cjs <signed-delegation.json> [--sig 0x…] [--serve] [--broadcast --yes]');
@@ -81,11 +94,24 @@ if (broadcast && !flag('yes')) {
   process.exit(2);
 }
 
-// ── the result envelope, matching redeem-delegation.cjs ──────────────────────
+// ── network ──────────────────────────────────────────────────────────────────
+// Nothing deployment-specific is hardcoded: the Hybrid comes from the delegation's
+// delegator, Main from the Hybrid's on-chain owner(), the agent from the delegation's
+// delegate field, and the MultiVault from the selected chain.
+const chainName = opt('chain', 'testnet');
+let NET;
+try { NET = resolveNetwork(chainName); }
+catch (e) { console.error('   ' + e.message); process.exit(1); }
+const CHAIN_ID = NET.chainId;
+const RPC = process.env.RPC || NET.rpc;   // explicit env override still honoured
+const MULTIVAULT = NET.multivault;
+
+// ── the result envelope, matching redeem-delegation.cjs ───────────────────────
 const result = {
   tool: 'revoke-delegation.cjs',
   mode: broadcast ? 'broadcast' : 'dry-run',
-  chainId: CHAIN_ID, entryPoint: EP, hybrid: HYBRID, main: MAIN,
+  chainId: CHAIN_ID, chain: chainName, entryPoint: EP, multivault: MULTIVAULT,
+  hybrid: null, main: null, agent: null,
   delegationHash: null, delegationDisabledBefore: null,
   userOp: null, digest: null, signature: null, signerRecovered: null,
   simulation: { ok: null, errorName: null, error: null, raw: null },
@@ -110,12 +136,21 @@ async function main() {
       process.exit(1);
     }
   }
-  if (d.delegator.toLowerCase() !== HYBRID.toLowerCase()) {
-    // This script revokes a HYBRID-issued delegation via 4337. Anything else
-    // (e.g. the old Path-2 EOA delegator) is a different operation.
-    emit({ decision: 'reject', reason: `delegator ${d.delegator} is not the Hybrid ${HYBRID}; this script revokes Hybrid-issued delegations only.` });
+  // The Hybrid is the delegation's own delegator — no hardcoded address.
+  const HYBRID = d.delegator;
+  const AGENT = d.delegate;
+  result.hybrid = HYBRID; result.agent = AGENT;
+
+  // The revoke route is Hybrid.execute(...) through the EntryPoint, which requires an
+  // ERC-4337 account. A delegator with no code cannot be revoked this way.
+  const hybridCode = await provider.getCode(HYBRID);
+  if (hybridCode === '0x') {
+    emit({ decision: 'halt', reason: `delegator ${HYBRID} has no code on ${NET.name} (${CHAIN_ID}) — deploy the Hybrid first (templates/sign-delegation.html, step 2a).` });
     process.exit(1);
   }
+  const hybridOwner = new ethers.Contract(HYBRID, ['function owner() view returns (address)'], provider);
+  const MAIN = await hybridOwner.owner();
+  result.main = MAIN;
   const caveats = (d.caveats || []).map(c => [c.enforcer, c.terms, c.args ?? '0x']);
 
   const dm = new ethers.Contract(DM, [
@@ -290,7 +325,7 @@ async function main() {
 
   // ── 6. serve a one-shot signing page (opt-in) ───────────────────────────────
   if (serve) {
-    await serveOnce({ domain, types, op, digest, depositToData, epDeposit, fundValueHex });
+    await serveOnce({ domain, types, op, digest, depositToData, epDeposit, fundValueHex, hybrid: HYBRID, owner: MAIN });
     return;
   }
 
@@ -416,7 +451,9 @@ async function main() {
     emit({ decision: 'halt', reason: 'agent wallet mismatch: ~/.intuition/agent-wallet.json is not ' + AGENT });
     process.exit(1);
   }
-  const tx = await agent.sendTransaction({ to: EP, data, gasLimit: 2_000_000, chainId: CHAIN_ID });
+  // gasPrice is pinned to match redeem-delegation.cjs: letting ethers estimate an
+  // EIP-1559 maxFeePerGas priced the intrinsic cost above the agent's whole balance.
+  const tx = await agent.sendTransaction({ to: EP, data, gasLimit: 2_000_000, gasPrice: 100_000_000n, chainId: CHAIN_ID });
   log(`6. tx sent        : ${tx.hash}`);
   const receipt = await tx.wait();
   log(`7. status         : ${receipt.status === 1 ? '✅ SUCCESS' : '❌ FAILED'} block=${receipt.blockNumber} gas=${receipt.gasUsed}`);
@@ -429,41 +466,49 @@ async function main() {
 
   let redemptionBlocked = null;
   if (after) {
-    // The real proof: the delegation can no longer be redeemed.
-    try {
-      const core = require(path.join(__dirname, 'node_modules/@metamask/delegation-core/dist/index.cjs'));
-      const dm2 = new ethers.Contract(DM, [
-        'function getDelegationHash((address,address,bytes32,(address,bytes,bytes)[],uint256,bytes)) view returns (bytes32)',
-        'function getDomainHash() view returns (bytes32)',
-      ], provider);
-      const sh = await dm2.getDelegationHash([d.delegate, d.delegator, d.authority, caveats, BigInt(d.salt), d.signature || '0x']);
-      const dh = await dm2.getDomainHash();
-      const dg = ethers.keccak256(ethers.concat(['0x1901', dh, sh]));
-      const mv = '0x2Ece8D4dEdcB9918A398528f3fa4688b1d2CAB91';
-      const value = ethers.parseEther('0.001');
-      const term = '88c64e37687bf17f7bc1fbc449ea700910cf7e80a92ab4d0fa3ae9d9eb15ae65';
-      const inner2 = '2fb1d270' + MAIN.toLowerCase().replace('0x', '').padStart(64, '0')
-        + term.padStart(64, '0') + '1'.padStart(64, '0') + '0'.repeat(64);
-      const execution = mv.toLowerCase().replace('0x', '') + value.toString(16).padStart(64, '0') + inner2;
-      const pc = core.encodeDelegations([d]);
-      const enc = els => {
-        const N = els.length; let head = N.toString(16).padStart(64, '0'); const offs = []; let tl = 0;
-        for (const el of els) { offs.push(32 * N + tl); tl += 32 + Math.ceil(el.length / 64) * 64; }
-        head += offs.map(o => o.toString(16).padStart(64, '0')).join('');
-        let t = '';
-        for (const el of els) { t += (el.length / 2).toString(16).padStart(64, '0'); t += el.padEnd(Math.ceil(el.length / 64) * 64, '0'); }
-        return head + t;
-      };
-      const ctx = enc([pc.slice(2)]);
-      const modes = '0'.repeat(63) + '1' + '0'.repeat(64);
-      const exs = enc([execution]);
-      const o1 = 96, o2 = o1 + ctx.length / 2, o3 = o2 + modes.length / 2;
-      const cd2 = 'cef6d209' + [o1, o2, o3].map(o => o.toString(16).padStart(64, '0')).join('') + ctx + modes + exs;
-      await provider.call({ from: AGENT, to: DM, data: '0x' + cd2 });
-      redemptionBlocked = false;
-    } catch (e) {
-      const m = String(e?.info?.error?.message || e?.message || '');
-      redemptionBlocked = /05baa052|CannotUseADisabledDelegation/.test(m + (e?.data || '')) ? true : 'unknown: ' + m.slice(0, 90);
+    // The probe needs a real vault on THIS chain; a hardcoded term would be wrong on the
+    // other network. Skip it rather than report a false result.
+    const termOpt = opt('term', null);
+    if (!termOpt) {
+      log('   (no --term given — skipping the redemption-block probe)');
+      redemptionBlocked = null;
+    } else {
+      // The real proof: the delegation can no longer be redeemed.
+      try {
+        const core = require(path.join(__dirname, 'node_modules/@metamask/delegation-core/dist/index.cjs'));
+        const dm2 = new ethers.Contract(DM, [
+          'function getDelegationHash((address,address,bytes32,(address,bytes,bytes)[],uint256,bytes)) view returns (bytes32)',
+          'function getDomainHash() view returns (bytes32)',
+        ], provider);
+        const sh = await dm2.getDelegationHash([d.delegate, d.delegator, d.authority, caveats, BigInt(d.salt), d.signature || '0x']);
+        const dh = await dm2.getDomainHash();
+        const dg = ethers.keccak256(ethers.concat(['0x1901', dh, sh]));
+        const value = ethers.parseEther('0.001');
+        const term = String(termOpt).replace(/^0x/, '').toLowerCase();
+        if (term.length !== 64) { throw new Error('--term must be 32 bytes of hex'); }
+        const inner2 = '2fb1d270' + MAIN.toLowerCase().replace('0x', '').padStart(64, '0')
+          + term.padStart(64, '0') + '1'.padStart(64, '0') + '0'.repeat(64);
+        const execution = MULTIVAULT.toLowerCase().replace('0x', '') + value.toString(16).padStart(64, '0') + inner2;
+        const pc = core.encodeDelegations([d]);
+        const enc = els => {
+          const N = els.length; let head = N.toString(16).padStart(64, '0'); const offs = []; let tl = 0;
+          for (const el of els) { offs.push(32 * N + tl); tl += 32 + Math.ceil(el.length / 64) * 64; }
+          head += offs.map(o => o.toString(16).padStart(64, '0')).join('');
+          let t = '';
+          for (const el of els) { t += (el.length / 2).toString(16).padStart(64, '0'); t += el.padEnd(Math.ceil(el.length / 64) * 64, '0'); }
+          return head + t;
+        };
+        const ctx = enc([pc.slice(2)]);
+        const modes = '0'.repeat(63) + '1' + '0'.repeat(64);
+        const exs = enc([execution]);
+        const o1 = 96, o2 = o1 + ctx.length / 2, o3 = o2 + modes.length / 2;
+        const cd2 = 'cef6d209' + [o1, o2, o3].map(o => o.toString(16).padStart(64, '0')).join('') + ctx + modes + exs;
+        await provider.call({ from: AGENT, to: DM, data: '0x' + cd2 });
+        redemptionBlocked = false;
+      } catch (e) {
+        const m = String(e?.info?.error?.message || e?.message || '');
+        redemptionBlocked = /05baa052|CannotUseADisabledDelegation/.test(m + (e?.data || '')) ? true : 'unknown: ' + m.slice(0, 90);
+      }
     }
     result.redemptionBlocked = redemptionBlocked;
   }
@@ -486,10 +531,10 @@ async function main() {
 // MetaMask; no bundler, no agent key, no separate transaction from the CLI.
 //
 // This page never sees a private key. It only calls window.ethereum.
-async function serveOnce({ domain, types, op, digest, depositToData, epDeposit, fundValueHex }) {
+async function serveOnce({ domain, types, op, digest, depositToData, epDeposit, fundValueHex, hybrid, owner }) {
   const payload = JSON.stringify({
     domain, types, digest,
-    ep: EP, hybrid: HYBRID, owner: MAIN, chainId: CHAIN_ID,
+    ep: EP, hybrid, owner, chainId: CHAIN_ID, chainName: NET.name, rpc: NET.rpc,
     depositToData, fundValueHex, fundValueEth: ethers.formatEther(FUND_VALUE),
     deposit: ethers.formatEther(epDeposit ?? 0n),
     message: {
@@ -565,9 +610,9 @@ $('preview').textContent =
   'EIP-712 digest      ' + P.digest;
 
 const chain = {
-  id: P.chainId, name: 'Intuition Testnet',
+  id: P.chainId, name: P.chainName,
   nativeCurrency: { name: 'TRUST', symbol: 'TRUST', decimals: 18 },
-  rpcUrls: { default: { http: ['https://testnet.rpc.intuition.systems/http'] } },
+  rpcUrls: { default: { http: [P.rpc] } },
 };
 
 $('connect').onclick = async () => {
@@ -678,9 +723,9 @@ $('sign').onclick = async () => {
         res.end('ok');
         log(`\n   signature received: ${body}`);
         server.close();
-        // splice the signature in and continue down the normal submit path
-        args[args.indexOf('--serve')] = '--sig';
-        args.push(body);
+        // Hand the signature to the second run of main() and do NOT serve again.
+        SIG = body;
+        serve = false;
         await main();
         process.exit(0);
       });
@@ -695,7 +740,7 @@ $('sign').onclick = async () => {
     log(`     2. Sign the revoke UserOp (the authority)`);
     log('');
     log(`   Open:  http://127.0.0.1:${PORT}`);
-    log(`   Connect as the Hybrid OWNER: ${MAIN}`);
+    log(`   Connect as the Hybrid OWNER: ${owner}`);
     log(`   The page closes itself once the signature arrives.\n`);
   });
 }

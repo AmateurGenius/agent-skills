@@ -24,9 +24,9 @@ When a delegation redemption fails, rule out causes in this exact order:
 
 **Symptom (historical):** `redeemDelegations` reverted on Intuition testnet (chain 13579) with empty data or Panic 65.
 
-**Resolution (2026-08-17):** Creation track (OWS) is now **confirmed working on testnet**. Full lifecycle: create → write → revoke → blocked. Testnet txs: write `0xd017ff5c...`, revoke `0x9d5ceaee...`.
+**Resolution (2026-08-17):** the single-chain model is confirmed working on testnet — every operation (`createAtoms`, `createTriples`, `deposit`, `redeem`) runs through the same `Hybrid -> Agent` delegation.
 
-**Deposit track testnet status:** End-to-end delegation/redemption on testnet has **not** been executed. Only smart account provisioning and an EIP-7702 upgrade were attempted. Mainnet deposit track is confirmed working (approval `0x3f6bf183...`, redemption `0x0f48471f...`, revoke `0xb0778e08...`).
+**Testnet status (2026-11-10):** the full acceptance chain is proven end-to-end — create delegation → create-atom as delegate → deposit as delegate → revoke → redemption blocked. See `operations/revoke-delegation.md` → "Proven end-to-end (2026-11-10)". Hashes: create-atom `0x3aa6195e…`, deposit `0xfdcd35e1…`, revoke `0xd6e6afbe…` (block 9378419), and the redemption now returns `CannotUseADisabledDelegation`.
 
 **Root cause of earlier testnet failures:** Off-chain hash mismatch between the `permissionContext` computed by the signing script and the on-chain `getDelegationHash()`. Common culprits: (1) `_permissionContexts[i]` missing the `delegationHash` tuple element, (2) `execCallData` using `abi.encode(tuple)` instead of `solidityPacked(address,uint256,bytes)`, (3) `AllowedMethodsEnforcer` terms ABI-encoded as `bytes4[]` instead of raw concatenated bytes4 selectors.
 
@@ -55,8 +55,8 @@ The DelegationManager uses standard OpenZeppelin EIP-712 v4 (MetaMask Delegation
 
 ```solidity
 struct Delegation {
-  address delegator;
   address delegate;
+  address delegator;
   bytes32 authority;
   Caveat[] caveats;
   uint256 salt;
@@ -86,7 +86,7 @@ Caveat typehash: `keccak256("Caveat(address enforcer,bytes terms)")`
 | Enforcer | Terms Format | Common Pitfall |
 |----------|-------------|----------------|
 | **AllowedMethodsEnforcer** | Raw concatenated `bytes4` selectors | Do NOT use `abi.encode(bytes4[])` — it produces an array header that `decodeSingle()` misreads as the first selector |
-| **NativeTokenTransferAmountEnforcer** | `abi.encode(uint256 maxCumulativeSpend)` | Global cumulative cap, not periodic |
+| **ValueLteEnforcer** | `abi.encode(uint256 maxWad)` | Per-call native value cap. Omitting it defaults to **zero**, not unlimited |
 | **LimitedCallsEnforcer** | `abi.encode(uint256 maxCalls)` | Stateful counter in DelegationManager |
 
 ---
@@ -146,8 +146,8 @@ cast code $MULTIVAULT --rpc-url $RPC
 # 2. Read domain hash from-chain
 cast call $DELEGATION_MANAGER "getDomainHash()(bytes32)" --rpc-url $RPC
 
-# 3. Compute delegation hash on-chain (pass full struct)
-cast call $DELEGATION_MANAGER "getDelegationHash((address,address,bytes32,(address,bytes,bytes)[],uint256,bytes))(bytes32)" "$DELEGATOR" "$DELEGATE" "$AUTHORITY" "$CAVEATS" "$SALT" "$SIGNATURE" --rpc-url $RPC
+# 3. Compute delegation hash on-chain (pass full struct, delegate FIRST)
+cast call $DELEGATION_MANAGER "getDelegationHash((address,address,bytes32,(address,bytes,bytes)[],uint256,bytes))(bytes32)" "$DELEGATE" "$DELEGATOR" "$AUTHORITY" "$CAVEATS" "$SALT" "$SIGNATURE" --rpc-url $RPC
 
 # 4. Check if delegation is disabled
 cast call $DELEGATION_MANAGER "disabledDelegations(bytes32)(bool)" "$DELEGATION_HASH" --rpc-url $RPC

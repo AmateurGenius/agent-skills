@@ -46,9 +46,9 @@
     "minConfidence": 0.7
   },
   "delegation": {
-    "mode": "direct",
+    "mode": "delegated",
     "mainAccountAddress": null,
-    "smartAccountAddress": null,
+    "hybridAddress": null,
     "requireApprovalCheck": true,
     "dailyBudgetWei": "100000000000000000000"
   }

@@ -1,0 +1,13 @@
+{
+  "name": "intuition-skill-templates",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Signing page and executor scripts for the Intuition agent skill (Path C delegation).",
+  "type": "commonjs",
+  "dependencies": {
+    "@metamask/delegation-core": "3.0.0",
+    "@metamask/smart-accounts-kit": "2.0.0",
+    "ethers": "^6.13.0",
+    "viem": "2.56.8"
+  }
+}

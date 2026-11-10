@@ -22,21 +22,25 @@
 import { readFileSync } from 'fs';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
-// ethers resolves from the Termux home node_modules (verified); do NOT hardcode a
-// path here — `node -e "require.resolve('ethers')"` is the way to find it.
-const ethers = require('ethers');
+// This script lives in scripts/ but the skill's single dependency manifest is
+// templates/package.json (the templates/ tooling resolves its own deps there).
+// Resolve ethers from that install rather than relying on a global or home
+// node_modules. Setup: `npm install` in templates/.
+const requireFromTemplates = createRequire(new URL('../templates/', import.meta.url));
+const ethers = requireFromTemplates('ethers');
+const { DELEGATION_MANAGER, resolveNetwork } = requireFromTemplates('./networks.cjs');
 
-const DM = '0xdb9B1e94B5b69Df7e401DDbedE43491141047dB3';
-const DEFAULT_RPC = 'https://testnet.rpc.intuition.systems/http';
+const DM = DELEGATION_MANAGER;
 const MAGIC = '0x1626ba7e';
 
 const args = process.argv.slice(2);
 const file = args.find(a => !a.startsWith('--'));
+const NET = resolveNetwork(args.indexOf('--chain') >= 0 ? args[args.indexOf('--chain') + 1] : 'testnet');
 const i = args.indexOf('--rpc');
-const rpc = i >= 0 ? args[i + 1] : DEFAULT_RPC;
+const rpc = i >= 0 ? args[i + 1] : NET.rpc;
 
 if (!file) {
-  console.error('Usage: node compute-delegation-hash.mjs <signed-delegation.json> [--rpc <url>]');
+  console.error('Usage: node compute-delegation-hash.mjs <signed-delegation.json> [--chain testnet|mainnet] [--rpc <url>]');
   process.exit(1);
 }
 

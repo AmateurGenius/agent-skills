@@ -18,6 +18,18 @@ This skill teaches you to produce correct Intuition Protocol transactions. Follo
 
 When asked to interact with Intuition, first select the network (see Network Selection below), then follow the path that matches your task:
 
+> **Default: delegated — and direct writes are opt-in.** When policy sets
+> `delegation.mode: delegated` (the shipped default), the agent MUST hold a valid delegation
+> before any write. **Do not fall back to a direct write.** If no delegation is held, STOP
+> and provision one (agent wallet → delegation), then write. Acting under the agent's own
+> key when the user expected delegation splits their attestations and reputation across two
+> addresses — the exact failure this skill exists to prevent.
+>
+> Path B is correct only when `delegation.mode: direct` is set explicitly, or when the user
+> has not delegated and says so. Check for a held delegation before the first write of a
+> session, and treat "no delegation" as a provisioning task, not as permission to write
+> directly.
+
 ### Path A: Read-Only Exploration
 
 For searching atoms, browsing triples, analyzing the graph, or discovering positions — no wallet or on-chain setup needed.
@@ -49,18 +61,70 @@ The delegator is a **contract** (a Hybrid smart account), so the Main account ca
 revoke it directly and redemption routes through ERC-4337/ERC-1271. Full details in
 `reference/delegation.md`; procedures in the four delegation deliverables listed below.
 
-1. **The delegator is the Hybrid, not the Main EOA.** Chain of authority is
-   `Main (owner of Hybrid) -> Hybrid (delegator) -> Agent (delegate)`. Signing is done
-   by the Main owner EOA via MetaMask; the delegator is the Hybrid contract.
-2. **Create + sign the delegation** in the browser (`templates/sign-delegation.html`),
-   which uses the SDK (`toMetaMaskSmartAccount -> createDelegation -> signDelegation`).
-   See `operations/create-delegation.md`.
-3. **Hand the signed JSON to the agent.** The agent stores it and, per request, runs
-   `reference/delegation-authority.md` to parse, verify the signature, check the caveats
-   and revocation state, simulate, and emit a proceed/halt/reject decision.
-4. **Execute** with `templates/redeem-delegation.cjs` (dry-run by default;
-   `--broadcast --yes` to send), or **revoke** with
-   `templates/revoke-delegation.cjs` (see `operations/revoke-delegation.md`).
+**Chain of authority:** `Main (owner of Hybrid) -> Hybrid (delegator) -> Agent (delegate)`.
+The Main EOA signs; the Hybrid is `msg.sender` at MultiVault; the agent holds the delegate
+key and submits redemptions.
+
+#### C0 — One-time provisioning (browser, Main account)
+
+The Hybrid must exist, be approved on MultiVault, and be funded **before** any delegation
+can be signed. The signing page does all of it:
+
+```bash
+cd templates
+python3 -m http.server 8000
+# open http://127.0.0.1:8000/sign-delegation.html in MetaMask's browser
+#   (MetaMask requires http://localhost or https:// — a file:// page cannot connect)
+```
+
+1. **Pick the network** — Intuition Testnet (13579) or Intuition Mainnet (1155). The page
+   switches chain, RPC, factory and MultiVault together; the Hybrid is deployed per chain.
+2. **Enter the deployment addresses** — Owner EOA (the Hybrid owner, i.e. the Main account)
+   and Agent (the delegate). The Agent address must come from the agent's provisioned
+   wallet — run `node templates/provision-agent-wallet.cjs` on the agent side and paste the
+   address it prints. The Hybrid address is predicted from the network's factory + deploy
+   salt + owner, so it is never typed by hand.
+3. **Connect Wallet** with the **Main account** (the Hybrid owner).
+4. **2a Deploy Hybrid** → **2b Approve on MultiVault** (`approve(hybrid, 3)` =
+   DEPOSIT | REDEMPTION) → **2c Fund Hybrid** (TRUST for atom/triple costs and deposits).
+5. **Build fresh (SDK)** → **Sign with MetaMask**. The page verifies on-chain before
+   accepting (`isValidSignature → 0x1626ba7e`) and shows which operations the enforcers admit.
+
+Export the JSON and hand it to the agent. The Main key is used once here and is never stored
+by the agent or the skill. If the Hybrid is redeployed, the delegation must be re-issued.
+
+See `operations/create-delegation.md` for the SDK-level detail.
+
+#### C1 — Per-request authority check (agent, no browser)
+
+**Step 0 — is a delegation held?** If not, **stop and provision one**. Do not fall back to a
+direct write: run `node templates/provision-agent-wallet.cjs` (agent wallet), hand the address
+to the delegator, and have them sign (C0). Only then continue.
+
+Run `reference/delegation-authority.md`: parse, verify the signature, check the caveats and
+revocation state, simulate, and emit a proceed/halt/reject decision. **A green signature
+check is not the verdict** — revocation and caveat checks run after it.
+
+#### C2 — Execute
+
+`templates/redeem-delegation.cjs` (dry-run by default; add `--broadcast --yes` to send):
+
+| Operation | Command |
+|---|---|
+| Create an atom | `node templates/redeem-delegation.cjs <signed.json> --op create-atom --atom-data ipfs://bafy…` |
+| Create a triple | `node templates/redeem-delegation.cjs <signed.json> --op create-triple --subject 0x.. --predicate 0x.. --object 0x..` |
+| Deposit into a vault | `node templates/redeem-delegation.cjs <signed.json> --op deposit --term 0x<termId> --amount 0.001` |
+| Switch network | add `--chain mainnet` (default is `testnet`) |
+
+`--atom-data` must be an `ipfs://` URI from `reference/schemas.md`, or a `caip10:` address —
+plain strings are refused, because they create legacy duplicate atoms. The script reads the
+agent address from the delegation, the Main account from the Hybrid's on-chain `owner()`, and
+the costs and curve from MultiVault at run time, so nothing deployment-specific is assumed.
+
+#### C3 — Revoke
+
+`templates/revoke-delegation.cjs` (see `operations/revoke-delegation.md`). Revocation is an
+ERC-4337 UserOp because the delegator is a contract.
 
 The Main Account key is used once for setup (deploy + approve) and is NEVER stored by the
 agent or skill. After setup the Hybrid signs delegations via the MetaMask popup.
@@ -74,6 +138,15 @@ If you start with exploration (Path A) and then need to write based on what you 
 - **Wallet infrastructure** — a signing mechanism (wallet MCP tool, backend service, `cast` with a private key). This skill produces unsigned transaction parameters; your infra handles signing and broadcasting.
 - **Funded wallet** — $TRUST (mainnet) or tTRUST (testnet) on the Intuition L3.
 - **RPC access** — public Intuition RPC endpoints, no API keys required.
+- **Pinning capability for structured atoms** — the consuming application's
+  trusted server or CLI runtime owns configuration and credentials. Prefer
+  `@0xintuition/sdk` 3.0.1 or newer with `configureSdk({ pinApiKey })`, or a
+  compatible host-provided adapter. The skill never obtains, stores, prints, or
+  places the key in prompts, plans, transaction output, or browser code. Read
+  `reference/schemas.md` before any structured-atom write.
+- **Template dependencies** — run `npm install` in `templates/` before using the
+  signing page locally or any executor script in that directory (Node 18+). The
+  signing page itself needs no install; it loads the SDK from a CDN.
 
 ## Autonomous Mode Policy
 
@@ -132,6 +205,10 @@ For pin failures (IPFS pinning failed before on-chain write), output one pin fai
 }
 ```
 
+When no host pinning capability or API key is configured, set `reason` to a
+message beginning `pinning_configuration_required`. Do not attempt the request,
+ask the user to paste a key, inspect secret files, or emit transaction data.
+
 The JSON object is the complete machine-mode response.
 
 Use base-10 strings for top-level numeric transaction fields (`value`,
@@ -158,17 +235,23 @@ operations/                       (Path B: writes — run session setup first)
   create-atoms.md                 Create atom vaults from URI data
   create-triples.md               Create triple vaults linking three terms
   deposit.md                      Deposit $TRUST into a vault, mint shares
+  deposit-atom.md                 Deposit into an existing atom vault (type-checked)
+  deposit-triple.md               Deposit into an existing triple vault (type-checked)
   redeem.md                       Redeem shares from a vault, receive $TRUST
   batch-deposit.md                Deposit into multiple vaults in one transaction
   batch-redeem.md                 Redeem from multiple vaults in one transaction
   approve.md                      Grant/revoke deposit or redemption approval for delegated flows
 
 reference/                        (Path C: delegation — see the delegation table below)
-  delegation.md                   The delegation model: roles, tracks, types, addresses
+  delegation.md                   The delegation model: three roles, one chain, struct anatomy, addresses
   delegation-authority.md         Agent-side proceed/halt/reject decision procedure
+  delegation-debugging.md         Layered debugging order and diagnostic commands
 operations/                       (Path C: delegation procedures)
   create-delegation.md            Create and sign a delegation
   revoke-delegation.md            Revoke via ERC-4337
+
+top-level
+  ux-patterns.md                  Mandatory UX patterns for every operation
 ```
 
 ## Delegation Deliverables (Path C)
@@ -177,7 +260,7 @@ The four delegation deliverables are standalone. Read the one your task needs.
 
 | Your task | Read |
 |---|---|
-| How delegation works — roles, tracks, types, addresses, agent wallet | `reference/delegation.md` |
+| How delegation works — three roles, one chain, struct anatomy, addresses, agent wallet | `reference/delegation.md` |
 | Create and sign a delegation | `operations/create-delegation.md` |
 | Decide whether to act on your authority | `reference/delegation-authority.md` |
 | Revoke a delegation | `operations/revoke-delegation.md` |
@@ -185,7 +268,7 @@ The four delegation deliverables are standalone. Read the one your task needs.
 ### The lifecycle in four steps
 
 ```
-reference/delegation.md          concepts: the three roles, the two tracks,
+reference/delegation.md          concepts: the three roles, one delegation chain,
                                  the 2-field typehash vs 3-field ABI split, addresses
         ↓
 operations/create-delegation.md   build → scope → sign → output JSON
@@ -216,7 +299,7 @@ the route; do not conclude revocation is blocked without reading it.
 | Decide whether to act on delegated authority | `reference/delegation-authority.md` |
 | Revoke a delegation | `operations/revoke-delegation.md` |
 
-The delegation model itself (three roles, two tracks, the 2-field typehash vs 3-field
+The delegation model itself (three roles, one chain, the 2-field typehash vs 3-field
 ABI struct split, addresses on 13579 + 1155, the enforcer set, agent-wallet setup,
 chained/redelegation) is in `reference/delegation.md`.
 
@@ -440,6 +523,7 @@ To perform a write, open the corresponding operation file and follow its steps e
 
 | When you need to... | Read this file | Payable |
 |---------------------|----------------|---------|
+| **Act through a signed delegation (Path C) — the default** | `operations/create-delegation.md` to sign, then `templates/redeem-delegation.cjs` to execute (op table in Path C) | Depends on the inner call |
 | Create atoms from URIs | `operations/create-atoms.md` (always pin to IPFS first via `reference/schemas.md`, except CAIP-10) | Yes — `msg.value = sum(assets[])`, each `assets[i] >= atomCost` |
 | Create triples linking terms | `operations/create-triples.md` | Yes — `msg.value = sum(assets[])`, each `assets[i] >= tripleCost` |
 | Deposit $TRUST into a vault | `operations/deposit.md` | Yes — `msg.value = deposit amount` |
@@ -447,7 +531,7 @@ To perform a write, open the corresponding operation file and follow its steps e
 | Deposit into multiple vaults | `operations/batch-deposit.md` | Yes — `msg.value = sum(assets)` |
 | Redeem from multiple vaults | `operations/batch-redeem.md` | No — `value = 0` |
 | Delegate deposit/redemption (receiver ≠ sender) | `operations/approve.md` | No — `value = 0` |
-| Act through a signed delegation (Path C) | `reference/delegation.md` then `operations/create-delegation.md` | Depends on the inner call |
+| Act directly (Path B — only when no delegation is held) | `operations/` (same files as above) | As per the operation |
 
 For on-chain reads (costs, existence, vault state, previews), follow `reference/reading-state.md`.
 For discovery reads (search, browse, traverse the knowledge graph), follow `reference/graphql-queries.md`.
@@ -556,6 +640,8 @@ These facts govern all Intuition transactions. Reference them when encoding oper
   selector, checks addresses, domain hashes, typehashes.
 - `scripts/audit-deliverable-refs.mjs` — closure check: every reference in the five
   deliverables resolves inside the shipped set.
+- `templates/networks.cjs` — the single source of truth for chain data (chainId, RPC,
+  MultiVault) used by every script and probe in `templates/`.
 
 ### Protocol (Paths A and B)
 - `README.md` — installation, network selection, and the end-to-end quickstarts.
